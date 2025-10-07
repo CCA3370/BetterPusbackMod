@@ -734,7 +734,7 @@ void SettingsWindow::buildInterface() {
 
     ImGui::TableNextRow();
     ImGui::TableNextColumn();
-    ImGui::Text("%s", _("Exclude ACF plugin (Experimental)"));
+    ImGui::Text("%s", _("ACF Plugin Exclusion (Experimental)"));
     Tooltip(_(plugin_acf_tooltip));
 
     ImGui::TableNextColumn();
