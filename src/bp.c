@@ -39,6 +39,7 @@
 #include <XPLMPlanes.h>
 #include <XPLMProcessing.h>
 #include <XPStandardWidgets.h>
+#include <XPLMPlugin.h>
 
 #include <acfutils/assert.h>
 #include <acfutils/dr.h>
@@ -219,6 +220,9 @@ static int recon_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 
 static bool_t bp_run_push_manual(void);
 
+void acf_plg_debut(void);
+void acf_plg_fini(void);
+
 static bool_t radio_volume_warn = B_FALSE;
 
 static const acf_info_t incompatible_acf[] = {
@@ -239,6 +243,13 @@ static button_t magic_buttons[] = {
         {.filename = "status.png", .vk = -1, .tex = 0, .tex_data = NULL, .wind_id = NULL},
         {.filename = NULL},
 };
+
+static struct
+{
+    int exclusion_started;
+    int plg_status;
+    XPLMPluginID plg_id;
+} acf_tracker_plg_exclude = {0, 0, -1};
 
 /*
  * This flag is set by the planner if the user clicked on the "connect first"
@@ -3506,6 +3517,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon) {
             break;
         case PB_STEP_STARTING:
             bp_hint_status_str = _("Push-back started");
+            acf_plg_debut();
             if (!slave_mode) {
                 dr_seti(&drs.override_steer, 1);
                 brakes_set(B_FALSE);
@@ -3543,6 +3555,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon) {
             pb_step_stopping();
             break;
         case PB_STEP_STOPPED:
+            acf_plg_fini();
             bp_hint_status_str = _("Push-back stopped");
             pb_step_stopped();
             break;
@@ -3647,4 +3660,66 @@ bp_num_segs(void) {
     if (!bp_init())
         return (0);
     return (list_count(&bp.segs));
+}
+
+
+
+void acf_plg_debut(void)
+{
+
+    if (!acf_tracker_plg_exclude.exclusion_started) {
+
+        const char *plg_to_exclude = NULL;
+        
+        acf_tracker_plg_exclude.exclusion_started = 1;
+        acf_tracker_plg_exclude.plg_id = -1;
+        if (conf_get_str_per_acf((char *) "plg_acf_to_exclude", (char **) &plg_to_exclude))
+        {
+            acf_tracker_plg_exclude.plg_id = XPLMFindPluginBySignature(plg_to_exclude);
+        }
+        else
+        {
+            logMsg("Acf XPLMDisablePlugin not done, no Acf plugin to exclude selected");
+            return;
+        }
+
+        if (acf_tracker_plg_exclude.plg_id != -1)
+        {
+            acf_tracker_plg_exclude.plg_status = XPLMIsPluginEnabled(acf_tracker_plg_exclude.plg_id);
+            if (acf_tracker_plg_exclude.plg_status)
+            {
+                XPLMDisablePlugin(acf_tracker_plg_exclude.plg_id);
+                logMsg("Acf XPLMDisablePlugin on %s", plg_to_exclude);
+            }
+            else
+            {
+                logMsg("Acf XPLMDisablePlugin not done, was already disabled");
+            }
+        }
+        else
+        {
+            logMsg("Acf XPLMDisablePlugin not done, plugin %s not found", plg_to_exclude);
+        }
+    }
+}
+
+void acf_plg_fini(void)
+{
+    if (!acf_tracker_plg_exclude.exclusion_started) {
+        return;
+    }
+    if (acf_tracker_plg_exclude.plg_id != -1)
+    {
+        acf_tracker_plg_exclude.plg_status = XPLMIsPluginEnabled(acf_tracker_plg_exclude.plg_id);
+        if (!acf_tracker_plg_exclude.plg_status)
+        {
+            int r = XPLMEnablePlugin(acf_tracker_plg_exclude.plg_id);
+            logMsg("Acf XPLMEnablePlugin %d", r);
+        }
+        else
+        {
+            logMsg("Acf XPLMEnablePlugin not done, was already enabled");
+        }
+    }
+    acf_tracker_plg_exclude.exclusion_started = 0;
 }

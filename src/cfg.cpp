@@ -174,6 +174,13 @@ const char *eye_tracker_tooltip =
     "plugin may cause X-plane to crash.\n"
     "Otherwise this setting must be set to : None.";
 
+  const char *plugin_acf_tooltip =
+  "Some aircraft plugin may be not compatible with Bpb\n"
+  "If it is the case, select the plugin that is in conflit with BpB.\n\n"
+  "CAUTION: At this point, you know what you are doing, selecting the wrong "
+  "plugin may cause X-plane to crash.\n"
+  "Otherwise this setting must be set to : None.";
+
 typedef struct {
   const char *string;
   bool use_chinese;
@@ -229,6 +236,9 @@ comboList_t sound_device_list = {sound_device_list_, 0, "##sound_device_list",
 comboList_t_ *plg_list_ = nullptr;
 comboList_t plg_list = {plg_list_, 0, "##plg_list", 0};
 
+comboList_t_ *plg_list_acf_ = nullptr;
+comboList_t plg_acf_list = {plg_list_acf_, 0, "##plg_acf_list", 0};
+
 comboList_t_ *doors_check_list_ = nullptr;
 comboList_t doors_check_list = {doors_check_list_, 0, "##doors_check", 0};
 
@@ -245,6 +255,7 @@ public:
     comboList_free(&radio_device_list);
     comboList_free(&sound_device_list);
     comboList_free(&plg_list);
+    comboList_free(&plg_acf_list);
     comboList_free(&doors_check_list);
   }
 
@@ -268,10 +279,10 @@ private:
   int for_credit;
   int magic_squares_height;
   int doors_check;
-  const char *radio_dev, *sound_dev, *plg_to_exclude;
+  const char *radio_dev, *sound_dev, *plg_to_exclude, *plg_acf_to_exclude;
   void LoadConfig(void);
   void sound_comboList_init(comboList_t *list);
-  void plugin_comboList_init(comboList_t *list);
+  void plugin_comboList_init(comboList_t *list, bool_t only_aircraft);
   void doorscheck_comboList_init(comboList_t *list);
   void comboList_free(comboList_t *list);
   void initPerAircraftSettings(void);
@@ -388,7 +399,7 @@ void SettingsWindow::LoadConfig(void) {
   }
 
   plg_to_exclude = NULL;
-  plugin_comboList_init(&plg_list);
+  plugin_comboList_init(&plg_list, B_FALSE);
   plg_list.selected = 0;
   if (conf_get_str(bp_conf, "plg_to_exclude", &plg_to_exclude)) {
     for (int i = 0; i < plg_list.list_size; i++) {
@@ -397,19 +408,37 @@ void SettingsWindow::LoadConfig(void) {
         break;
       }
     }
-  }
+  }  
+
+  plg_acf_to_exclude = NULL;
+  plugin_comboList_init(&plg_acf_list, B_TRUE);
+  plg_acf_list.selected = 0;
+  if (conf_get_str_per_acf((char *) "plg_acf_to_exclude", (char **) &plg_acf_to_exclude)) {
+    for (int i = 0; i < plg_acf_list.list_size; i++) {
+      if ((strcmp(plg_acf_to_exclude, plg_acf_list.combo_list[i].value) == 0)) {
+        plg_acf_list.selected = i;
+        break;
+      }
+    }
+  }  
+  
 
   doorscheck_comboList_init(&doors_check_list);
   doors_check_list.selected = doors_check;
 }
 
-void SettingsWindow::plugin_comboList_init(comboList_t *list) {
+void SettingsWindow::plugin_comboList_init(comboList_t *list,  bool_t only_aircraft) {
   int num_plg = XPLMCountPlugins();
   XPLMPluginID plg_id;
   char plg_name[256] = {0};
   char plg_signature[256] = {0};
   char path[1024] = {0};
   int num_resource_plg = 1;
+  const char *search_path = "Resources/plugins/";
+
+  if (only_aircraft) {
+      search_path = "Aircraft/";
+  }
 
   list->combo_list =
       (comboList_t_ *)safe_calloc(num_plg + 1, sizeof(comboList_t_));
@@ -428,7 +457,7 @@ void SettingsWindow::plugin_comboList_init(comboList_t *list) {
         (strstr(plg_signature, "Navigraph") != NULL)) {
       continue;
     }
-    if (strstr(path, "Resources/plugins/") != NULL) {
+    if (strstr(path, search_path) != NULL) {
       list->combo_list[num_resource_plg].string = strdup(plg_name);
       list->combo_list[num_resource_plg].use_chinese = B_FALSE;
       list->combo_list[num_resource_plg].value = strdup(plg_signature);
@@ -701,6 +730,22 @@ void SettingsWindow::buildInterface() {
       conf_set_i_per_acf((char *)"magic_squares_height",
                          (int)magic_squares_height);
       main_intf_hide();
+    }
+
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::Text("%s", _("Exclude ACF plugin (Experimental)"));
+    Tooltip(_(plugin_acf_tooltip));
+
+    ImGui::TableNextColumn();
+    ImGui::SetNextItemWidth(combowithWidth);
+    if (comboList(&plg_acf_list)) {
+      if (plg_acf_list.selected == 0) {
+        conf_set_str_per_acf((char *) "plg_acf_to_exclude", NULL);
+      } else {
+        conf_set_str_per_acf((char *) "plg_acf_to_exclude",
+                     (char *) plg_acf_list.combo_list[plg_acf_list.selected].value);
+      }
     }
 
     ImGui::TableNextRow();
@@ -1111,6 +1156,54 @@ void conf_set_i_per_acf(char *my_key, int value) {
     snprintf(key, l + 1, "%s_%s", my_key, my_acf);
     key_sanity(key);
     (void)conf_set_i(bp_conf, key, value);
+    free(key);
+  }
+}
+
+bool_t conf_get_str_per_acf(char *my_key, char **value) {
+  char my_acf[512], my_path[512];
+  bool_t per_aircraft_is_global = B_FALSE;
+  (void) conf_get_b(bp_conf, "per_aircraft_is_global", &per_aircraft_is_global);
+  XPLMGetNthAircraftModel(0, my_acf, my_path);
+  if (per_aircraft_is_global || (strlen(my_acf) == 0)) {
+    // if per_aircraft_is_global , the setting is written as global setting
+    // if not aircraft found (should never happened), try the generic key
+    return conf_get_str(bp_conf, my_key, (const char ** ) value);
+  } else {
+    int l;
+    bool_t result;
+    char *key;
+    l = snprintf(NULL, 0, "%s_%s", my_key, my_acf);
+    key = (char *)safe_malloc(l + 1);
+    snprintf(key, l + 1, "%s_%s", my_key, my_acf);
+    key_sanity(key);
+    result = conf_get_str(bp_conf, key, (const char ** ) value);
+    if (!result) {
+      // if not found per aircraft, try the generic key
+      result = conf_get_str(bp_conf, my_key, (const char ** ) value);
+    }
+    free(key);
+    return result;
+  }
+}
+
+void conf_set_str_per_acf(char *my_key, char *value) {
+  char my_acf[512], my_path[512];
+  bool_t per_aircraft_is_global = B_FALSE;
+  (void) conf_get_b(bp_conf, "per_aircraft_is_global", &per_aircraft_is_global);
+  XPLMGetNthAircraftModel(0, my_acf, my_path);
+  if (per_aircraft_is_global || (strlen(my_acf) == 0)) {
+    // if per_aircraft_is_global , the setting is written as global setting
+    // if not aircraft found (should never happened), try the generic key
+    (void)conf_set_str(bp_conf, my_key, value);
+  } else {
+    int l;
+    char *key;
+    l = snprintf(NULL, 0, "%s_%s", my_key, my_acf);
+    key = (char *)safe_malloc(l + 1);
+    snprintf(key, l + 1, "%s_%s", my_key, my_acf);
+    key_sanity(key);
+    (void)conf_set_str(bp_conf, key, value);
     free(key);
   }
 }

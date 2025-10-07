@@ -76,6 +76,10 @@ bool_t conf_get_i_per_acf(char *my_key,  int *value);
 
 void conf_set_i_per_acf(char *my_key,  int value);
 
+bool_t conf_get_str_per_acf(char *my_key,  char **value);
+
+void conf_set_str_per_acf(char *my_key,  char *value);
+
 void push_reset_fov_values(void);
 
 void pop_fov_values(void);
