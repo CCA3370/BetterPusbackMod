@@ -303,7 +303,7 @@ msgstr "Algunos plugins de seguimiento ocular (Eye tracking) utilizan el sistema
     "Excluir el plugin equivocado puede hacer que X-Plane se bloquee.\n"
     "Si no tiene ningún problema, deje este ajuste en: Ninguno."
 
-msgid "Some aircraft plugin may be not compatible with Bpb\n"
+msgid "Some aircraft plugin may be not compatible with BpB\n"
   "If it is the case, select the plugin that is in conflit with BpB.\n\n"
   "CAUTION: At this point, you know what you are doing, selecting the wrong "
   "plugin may cause X-plane to crash.\n"

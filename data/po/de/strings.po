@@ -304,7 +304,7 @@ msgstr "Einige Eye-Tracking-Plugins verwenden das Kamerasystem von X-Plane "
     "Das Ausschließen des falschen Plugins kann zum Absturz von X-Plane führen.\n"
     "Wenn Sie keine Probleme haben, lassen Sie diese Einstellung auf: Keine."
 
-msgid "Some aircraft plugin may be not compatible with Bpb\n"
+msgid "Some aircraft plugin may be not compatible with BpB\n"
   "If it is the case, select the plugin that is in conflit with BpB.\n\n"
   "CAUTION: At this point, you know what you are doing, selecting the wrong "
   "plugin may cause X-plane to crash.\n"

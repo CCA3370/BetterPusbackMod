@@ -307,7 +307,7 @@ msgstr "Некоторые плагины для трекинга взгляда
     "Выбор неправильного плагина может привести к сбою (крашу) X-Plane.\n"
     "Если проблем нет, оставьте этот параметр в положении: Нет."
 
-msgid "Some aircraft plugin may be not compatible with Bpb\n"
+msgid "Some aircraft plugin may be not compatible with BpB\n"
   "If it is the case, select the plugin that is in conflit with BpB.\n\n"
   "CAUTION: At this point, you know what you are doing, selecting the wrong "
   "plugin may cause X-plane to crash.\n"

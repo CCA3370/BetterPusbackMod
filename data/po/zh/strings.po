@@ -317,7 +317,7 @@ msgstr "某些眼动追踪（Eye tracking）插件使用了 X-Plane 的摄像机
     "选择错误的插件可能会导致 X-Plane 崩溃。\n"
     "如果没有问题，请将此设置保持为：无。"
 
-msgid "Some aircraft plugin may be not compatible with Bpb\n"
+msgid "Some aircraft plugin may be not compatible with BpB\n"
   "If it is the case, select the plugin that is in conflit with BpB.\n\n"
   "CAUTION: At this point, you know what you are doing, selecting the wrong "
   "plugin may cause X-plane to crash.\n"

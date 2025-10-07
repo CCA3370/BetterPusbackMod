@@ -158,7 +158,7 @@ const char *doors_check_tooltip =
 const char *monitor_tooltip =
     "In case of multiple monitors configuration, BpB need to use the primary "
     "monitor\n"
-    "(the one with the x-plane menus), Bpb is able to select it "
+    "(the one with the x-plane menus), BpB is able to select it "
     "automatically.\n"
     "If not select the one that works ! (the monitor numbers are arbitrary).";
 
@@ -175,7 +175,7 @@ const char *eye_tracker_tooltip =
     "Otherwise this setting must be set to : None.";
 
   const char *plugin_acf_tooltip =
-  "Some aircraft plugin may be not compatible with Bpb\n"
+  "Some aircraft plugin may be not compatible with BpB\n"
   "If it is the case, select the plugin that is in conflit with BpB.\n\n"
   "CAUTION: At this point, you know what you are doing, selecting the wrong "
   "plugin may cause X-plane to crash.\n"
@@ -450,7 +450,7 @@ void SettingsWindow::plugin_comboList_init(comboList_t *list,  bool_t only_aircr
   for (int i = 0; i < num_plg; i++) {
     plg_id = XPLMGetNthPlugin(i);
     XPLMGetPluginInfo(plg_id, plg_name, path, plg_signature, NULL);
-    // excluding pluginadmin and Navigraph and Bpb !!!!!
+    // excluding pluginadmin and Navigraph and BpB !!!!!
     if ((strstr(plg_signature, "pluginadmin") != NULL) ||
         (strstr(plg_signature, BP_PLUGIN_SIG) != NULL) ||
         (strstr(plg_signature, "skiselkov.xraas2") != NULL) ||
