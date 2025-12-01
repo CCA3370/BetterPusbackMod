@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  OPENAL_VERSION: "1.21.0"
+
 jobs:
   build-linux-windows:
     name: Build Linux & Windows
@@ -87,13 +90,13 @@ jobs:
         if: steps.cache-libacfutils-linux.outputs.cache-hit != 'true'
         working-directory: libacfutils
         run: |
+          set -e
           chmod +x build_deps
           # Download and extract openal-soft first, then patch for CMake compatibility
-          OPENAL_VER="1.21.0"
-          OPENAL_URL="https://github.com/kcat/openal-soft/archive/refs/tags/${OPENAL_VER}.tar.gz"
+          OPENAL_URL="https://github.com/kcat/openal-soft/archive/refs/tags/${{ env.OPENAL_VERSION }}.tar.gz"
           if [ ! -d "openal-soft" ]; then
             mkdir -p openal-soft
-            curl -L "$OPENAL_URL" | tar -xz -C openal-soft --strip-components=1
+            curl -fSL "$OPENAL_URL" | tar -xz -C openal-soft --strip-components=1
           fi
           # Patch CMakeLists.txt for CMake 3.5+ compatibility
           find openal-soft -name "CMakeLists.txt" -exec sed -i 's/cmake_minimum_required(VERSION 3\.0\.2)/cmake_minimum_required(VERSION 3.5...3.27)/g' {} \;
@@ -248,13 +251,13 @@ jobs:
         if: steps.cache-libacfutils-macos.outputs.cache-hit != 'true'
         working-directory: libacfutils
         run: |
+          set -e
           chmod +x build_deps
           # Download and extract openal-soft first, then patch for CMake compatibility
-          OPENAL_VER="1.21.0"
-          OPENAL_URL="https://github.com/kcat/openal-soft/archive/refs/tags/${OPENAL_VER}.tar.gz"
+          OPENAL_URL="https://github.com/kcat/openal-soft/archive/refs/tags/${{ env.OPENAL_VERSION }}.tar.gz"
           if [ ! -d "openal-soft" ]; then
             mkdir -p openal-soft
-            curl -L "$OPENAL_URL" | tar -xz -C openal-soft --strip-components=1
+            curl -fSL "$OPENAL_URL" | tar -xz -C openal-soft --strip-components=1
           fi
           # Patch CMakeLists.txt for CMake 3.5+ compatibility (macOS sed requires different syntax)
           find openal-soft -name "CMakeLists.txt" -exec sed -i '' 's/cmake_minimum_required(VERSION 3\.0\.2)/cmake_minimum_required(VERSION 3.5...3.27)/g' {} \;
