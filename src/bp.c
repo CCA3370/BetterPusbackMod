@@ -2409,6 +2409,15 @@ pb_step_waiting_for_pbrake(void) {
                                                           -(bp_ls.tug->info->apch_dist +
                                                             bp_ls.tug->info->lift_wall_z -
                                                             tug_lift_wall_off(bp_ls.tug))));
+    } else if (bp_ls.tug->info->lift_type == LIFT_TOWBAR) {
+        /*
+         * For towbar tugs, position based on towbar length so that
+         * the towbar can reach the aircraft nosewheel.
+         */
+        p_end = vect2_add(bp_ls.tug->pos.pos, vect2_scmul(dir,
+                                                          -(bp_ls.tug->info->apch_dist +
+                                                            bp_ls.tug->info->towbar_length -
+                                                            bp_ls.tug->info->towbar_hitch_z)));
     } else {
         p_end = vect2_add(bp_ls.tug->pos.pos, vect2_scmul(dir,
                                                           -(bp_ls.tug->info->apch_dist + bp_ls.tug->info->plat_z)));
@@ -2527,6 +2536,31 @@ pb_step_connect_winch(void) {
     }
 }
 
+/*
+ * Towbar connection is simpler than grab or winch - we just need to
+ * attach the towbar to the aircraft nosewheel without lifting it.
+ * The towbar creates a rigid link between the tug and aircraft.
+ */
+static void
+pb_step_connect_towbar(void) {
+    double d_t = bp.cur_t - bp.step_start_t;
+
+    if (!slave_mode) {
+        /* When connecting towbar, keep the aircraft firmly in place */
+        if (!cfg_ignore_park_break)
+            brakes_set(B_TRUE);
+    }
+
+    /*
+     * Towbar connection takes a short delay to simulate attaching
+     * the towbar to the aircraft nosewheel tow fitting.
+     */
+    if (d_t >= PB_CONN_LIFT_DELAY / 2) {
+        bp.step++;
+        bp.step_start_t = bp.cur_t;
+    }
+}
+
 static void
 pb_step_grab(void) {
     if (!slave_mode) {
@@ -2537,6 +2571,8 @@ pb_step_grab(void) {
     tug_set_lift_in_transit(B_TRUE);
     if (bp_ls.tug->info->lift_type == LIFT_GRAB)
         pb_step_connect_grab();
+    else if (bp_ls.tug->info->lift_type == LIFT_TOWBAR)
+        pb_step_connect_towbar();
     else
         pb_step_connect_winch();
 }
@@ -2545,7 +2581,55 @@ static void
 pb_step_lift(void) {
     double d_t = bp.cur_t - bp.step_start_t;
     double lift;
-    double lift_fract = d_t / PB_CONN_LIFT_DURATION;
+    double lift_fract;
+    bool_t is_towbar = (bp_ls.tug->info->lift_type == LIFT_TOWBAR);
+
+    /*
+     * For towbar tugs, we skip the actual lifting since the nosewheel
+     * stays on the ground. The towbar creates a rigid connection without
+     * lifting the aircraft's nose.
+     */
+    if (is_towbar) {
+        /* Towbar connection is faster - no lifting needed */
+        lift_fract = 1.0;
+        tug_set_lift_pos(0);  /* No lift animation for towbar */
+
+        /* Keep brakes set during connection */
+        if (!slave_mode && !cfg_ignore_park_break) {
+            brakes_set(B_TRUE);
+        }
+
+        /* Brief delay to simulate towbar pin insertion */
+        if (d_t >= STATE_TRANS_DELAY) {
+            tug_set_cradle_beeper_on(bp_ls.tug, B_FALSE);
+            tug_set_lift_in_transit(B_FALSE);
+        }
+
+        if (d_t >= STATE_TRANS_DELAY * 2) {
+            bp_connected = B_TRUE;
+            if (late_plan_requested) {
+                if (!late_plan_end_cond()) {
+                    bp_hint_status_str = _("Connected to the aircraft, waiting for clearance");
+                    enable_replanning();
+                    return;
+                }
+                late_plan_requested = B_FALSE;
+                if (!slave_mode) {
+                    plan_complete = B_TRUE;
+                    route_save(&bp.segs);
+                }
+            }
+
+            msg_play(MSG_CONNECTED);
+            bp.last_voice_t = bp.cur_t;
+            bp.step++;
+            bp.step_start_t = bp.cur_t;
+        }
+        return;
+    }
+
+    /* Original lift logic for LIFT_GRAB and LIFT_WINCH tugs */
+    lift_fract = d_t / PB_CONN_LIFT_DURATION;
 
     lift_fract = MAX(MIN(lift_fract, 1), 0);
     tug_set_lift_pos(lift_fract);
@@ -2790,6 +2874,7 @@ pb_step_lowering(void) {
     double lift_fract = 1 - ((d_t - STATE_TRANS_DELAY) /
                              PB_CONN_LIFT_DURATION);
     double lift;
+    bool_t is_towbar = (bp_ls.tug->info->lift_type == LIFT_TOWBAR);
 
     if (!slave_mode) {
         turn_nosewheel_auto(0);
@@ -2803,6 +2888,18 @@ pb_step_lowering(void) {
          * lift_fract relative to our step_start_t.
          */
         bp.step_start_t = bp.cur_t;
+        return;
+    }
+
+    /*
+     * For towbar tugs, there's no lowering needed since the
+     * nosewheel was never lifted. Just proceed with disconnection.
+     */
+    if (is_towbar) {
+        if (d_t >= STATE_TRANS_DELAY) {
+            bp.step++;
+            bp.step_start_t = bp.cur_t;
+        }
         return;
     }
 
@@ -2864,12 +2961,37 @@ pb_step_ungrabbing_winch(void) {
     return (B_TRUE);
 }
 
+/*
+ * Towbar disconnection - remove the towbar from the aircraft.
+ * This is simpler than grab/winch since no lifting mechanisms are involved.
+ */
+static bool_t
+pb_step_ungrabbing_towbar(void) {
+    double d_t = bp.cur_t - bp.step_start_t;
+
+    /*
+     * Brief delay to simulate disconnecting the towbar from
+     * the aircraft's nosewheel tow fitting.
+     */
+    if (d_t < STATE_TRANS_DELAY)
+        return (B_FALSE);
+
+    tug_set_cradle_beeper_on(bp_ls.tug, B_FALSE);
+
+    if (d_t < 2 * STATE_TRANS_DELAY)
+        return (B_FALSE);
+
+    return (B_TRUE);
+}
+
 static void
 pb_step_ungrabbing(void) {
     bool_t complete;
 
     if (bp_ls.tug->info->lift_type == LIFT_GRAB)
         complete = pb_step_ungrabbing_grab();
+    else if (bp_ls.tug->info->lift_type == LIFT_TOWBAR)
+        complete = pb_step_ungrabbing_towbar();
     else
         complete = pb_step_ungrabbing_winch();
 
