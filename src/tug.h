@@ -40,7 +40,9 @@ typedef enum {
     /* grab the nose wheel and lift it up using arms - the default */
     LIFT_GRAB,
     /* winch nose gear onto a platform and then lift the platform */
-    LIFT_WINCH
+    LIFT_WINCH,
+    /* towbar connection - no lifting, uses a rigid bar with two articulation points */
+    LIFT_TOWBAR
 } lift_t;
 
 typedef enum {
@@ -115,6 +117,16 @@ typedef struct {
      *	winched onto the platform.
      */
     double plat_z, plat_h;
+
+    /*
+     * Information related to towbar-style tugs.
+     * 1) towbar_length - Length of the towbar from tug hitch to aircraft
+     *    connection point (meters).
+     * 2) towbar_hitch_z - Position of the towbar hitch on the tug along
+     *    the longitudinal axis (meters, negative is behind origin).
+     */
+    double towbar_length;
+    double towbar_hitch_z;
 
     bool_t anim_debug;    /* animation debugging active */
     bool_t drive_debug;    /* driving debugging active */
@@ -243,6 +255,9 @@ void tug_set_winch_on(tug_t *tug, bool_t flag);
 void tug_set_clear_signal(bool_t on, bool_t right);
 
 void tug_set_lift_in_transit(bool_t flag);
+
+/* Check if tug is a towbar-type tug */
+bool_t tug_is_towbar(const tug_t *tug);
 
 #ifdef    __cplusplus
 }
