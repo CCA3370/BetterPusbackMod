@@ -83,19 +83,21 @@ jobs:
             libtool \
             unzip
 
-      - name: Patch OpenAL CMakeLists.txt for CMake compatibility
-        if: steps.cache-libacfutils-linux.outputs.cache-hit != 'true'
-        working-directory: libacfutils
-        run: |
-          if [ -d "openal-soft" ]; then
-            find openal-soft -name "CMakeLists.txt" -exec sed -i 's/cmake_minimum_required(VERSION 3\.0\.2)/cmake_minimum_required(VERSION 3.5...3.27)/g' {} \;
-          fi
-
       - name: Build libacfutils dependencies
         if: steps.cache-libacfutils-linux.outputs.cache-hit != 'true'
         working-directory: libacfutils
         run: |
           chmod +x build_deps
+          # Download and extract openal-soft first, then patch for CMake compatibility
+          OPENAL_VER="1.21.0"
+          OPENAL_URL="https://github.com/kcat/openal-soft/archive/refs/tags/${OPENAL_VER}.tar.gz"
+          if [ ! -d "openal-soft" ]; then
+            mkdir -p openal-soft
+            curl -L "$OPENAL_URL" | tar -xz -C openal-soft --strip-components=1
+          fi
+          # Patch CMakeLists.txt for CMake 3.5+ compatibility
+          find openal-soft -name "CMakeLists.txt" -exec sed -i 's/cmake_minimum_required(VERSION 3\.0\.2)/cmake_minimum_required(VERSION 3.5...3.27)/g' {} \;
+          # Now run build_deps which will skip openal-soft download if directory exists
           ./build_deps
 
       - name: Build libacfutils library
@@ -242,19 +244,21 @@ jobs:
           echo 'export PATH="/opt/homebrew/opt/qt@5/bin:$PATH"' >> ~/.bash_profile
           export PATH="/opt/homebrew/opt/qt@5/bin:$PATH"
 
-      - name: Patch OpenAL CMakeLists.txt for CMake compatibility
-        if: steps.cache-libacfutils-macos.outputs.cache-hit != 'true'
-        working-directory: libacfutils
-        run: |
-          if [ -d "openal-soft" ]; then
-            find openal-soft -name "CMakeLists.txt" -exec sed -i '' 's/cmake_minimum_required(VERSION 3\.0\.2)/cmake_minimum_required(VERSION 3.5...3.27)/g' {} \;
-          fi
-
       - name: Build libacfutils dependencies
         if: steps.cache-libacfutils-macos.outputs.cache-hit != 'true'
         working-directory: libacfutils
         run: |
           chmod +x build_deps
+          # Download and extract openal-soft first, then patch for CMake compatibility
+          OPENAL_VER="1.21.0"
+          OPENAL_URL="https://github.com/kcat/openal-soft/archive/refs/tags/${OPENAL_VER}.tar.gz"
+          if [ ! -d "openal-soft" ]; then
+            mkdir -p openal-soft
+            curl -L "$OPENAL_URL" | tar -xz -C openal-soft --strip-components=1
+          fi
+          # Patch CMakeLists.txt for CMake 3.5+ compatibility (macOS sed requires different syntax)
+          find openal-soft -name "CMakeLists.txt" -exec sed -i '' 's/cmake_minimum_required(VERSION 3\.0\.2)/cmake_minimum_required(VERSION 3.5...3.27)/g' {} \;
+          # Now run build_deps which will skip openal-soft download if directory exists
           ./build_deps
 
       - name: Build libacfutils library
