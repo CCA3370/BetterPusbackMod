@@ -860,6 +860,10 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
     void *cookie = NULL;
     size_t cap = 0;
     int forced_tug_type = cfg_get_forced_tug_type();
+    /* Names must match FORCED_TUG_* constants order in cfg.h */
+    static const char *forced_type_names[FORCED_TUG_COUNT] = {
+        "auto", "grab", "winch", "towbar"
+    };
 
     if (reason != NULL) {
         ASSERT3P(*reason, ==, NULL);
@@ -868,9 +872,8 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
                       mtow, ng_len, tirrad, gear_type,
                       arpt != NULL ? arpt : "(nil)");
         if (forced_tug_type != FORCED_TUG_AUTO) {
-            const char *type_names[] = {"auto", "grab", "winch", "towbar"};
             append_format(reason, &cap, " forced_type: %s",
-                          type_names[forced_tug_type]);
+                          forced_type_names[forced_tug_type]);
         }
         append_format(reason, &cap, "\n");
     }

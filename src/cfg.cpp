@@ -536,18 +536,18 @@ void SettingsWindow::doorscheck_comboList_init(comboList_t *list) {
 
 void SettingsWindow::tugtype_comboList_init(comboList_t *list) {
   // Options for tug type selection
-  // 0 = Auto, 1 = LIFT_GRAB, 2 = LIFT_WINCH, 3 = LIFT_TOWBAR
-  list->combo_list = (comboList_t_ *)safe_calloc(4, sizeof(comboList_t_));
-  list->list_size = 4;
+  // Order must match FORCED_TUG_* constants in cfg.h
+  list->combo_list = (comboList_t_ *)safe_calloc(FORCED_TUG_COUNT, sizeof(comboList_t_));
+  list->list_size = FORCED_TUG_COUNT;
 
-  static const char* tug_type_strings[] = {
+  static const char* tug_type_strings[FORCED_TUG_COUNT] = {
     _("Automatic"),
     _("Grab (Cradle)"),
     _("Winch (Platform)"),
     _("Towbar")
   };
 
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < FORCED_TUG_COUNT; ++i) {
     list->combo_list[i].string = strdup(tug_type_strings[i]);
     list->combo_list[i].use_chinese = B_FALSE;
     list->combo_list[i].value = strdup("");
