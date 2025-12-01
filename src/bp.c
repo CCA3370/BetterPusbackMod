@@ -220,6 +220,10 @@ static int recon_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 
 static bool_t bp_run_push_manual(void);
 
+static double towbar_get_hitch_angle(void);
+
+static double tug_speed(void);
+
 void acf_plg_debut(void);
 void acf_plg_fini(void);
 
@@ -893,14 +897,14 @@ turn_nosewheel(double req_steer) {
  *   Two pivot points:
  *   - Hinge A: between tug rear and towbar (can rotate freely)
  *   - Hinge B: between towbar and aircraft nosewheel (limited by steering angle)
-
-/* Maximum towbar deflection angle in degrees */
-#define    TOWBAR_MAX_DEFLECTION    60
  *
  * The towbar acts as a rigid link between the tug and aircraft. When the
  * tug moves, the towbar angle changes at both hinges, which affects the
  * nosewheel steering and the aircraft heading.
  */
+
+/* Maximum towbar deflection angle in degrees */
+#define    TOWBAR_MAX_DEFLECTION    60
 
 /*
  * Computes the towbar angle at the tug hitch point (hinge A).

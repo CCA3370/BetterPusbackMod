@@ -60,6 +60,13 @@ jobs:
             libtool \
             unzip
 
+      - name: Patch OpenAL CMakeLists.txt for CMake compatibility
+        working-directory: libacfutils
+        run: |
+          if [ -d "openal-soft" ]; then
+            find openal-soft -name "CMakeLists.txt" -exec sed -i 's/cmake_minimum_required(VERSION 3\.0\.2)/cmake_minimum_required(VERSION 3.5...3.27)/g' {} \;
+          fi
+
       - name: Build libacfutils dependencies
         working-directory: libacfutils
         run: |
@@ -131,6 +138,13 @@ jobs:
           brew install cmake automake autoconf libtool qt@5
           echo 'export PATH="/opt/homebrew/opt/qt@5/bin:$PATH"' >> ~/.bash_profile
           export PATH="/opt/homebrew/opt/qt@5/bin:$PATH"
+
+      - name: Patch OpenAL CMakeLists.txt for CMake compatibility
+        working-directory: libacfutils
+        run: |
+          if [ -d "openal-soft" ]; then
+            find openal-soft -name "CMakeLists.txt" -exec sed -i '' 's/cmake_minimum_required(VERSION 3\.0\.2)/cmake_minimum_required(VERSION 3.5...3.27)/g' {} \;
+          fi
 
       - name: Build libacfutils dependencies
         working-directory: libacfutils
