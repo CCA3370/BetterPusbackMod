@@ -1,0 +1,179 @@
+name: Build BetterPushback Plugin
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux-windows:
+    name: Build Linux & Windows
+    runs-on: ubuntu-22.04
+    
+    steps:
+      - name: Checkout BetterPusbackMod
+        uses: actions/checkout@v4
+        with:
+          path: BetterPusbackMod
+          fetch-depth: 0
+
+      - name: Checkout libacfutils
+        uses: actions/checkout@v4
+        with:
+          repository: olivierbutler/libacfutils
+          path: libacfutils
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            zip \
+            gettext \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            qt5-qmake \
+            qtbase5-dev \
+            qtbase5-dev-tools \
+            qtchooser \
+            mingw-w64 \
+            mingw-w64-x86-64-dev \
+            gcc-mingw-w64-x86-64 \
+            g++-mingw-w64-x86-64 \
+            libz-mingw-w64-dev \
+            pkg-config \
+            libasound2-dev \
+            portaudio19-dev \
+            libpulse-dev \
+            libsoundio-dev \
+            libx11-dev \
+            libxcursor-dev \
+            automake \
+            autoconf \
+            libtool \
+            unzip
+
+      - name: Patch OpenAL CMakeLists.txt for CMake compatibility
+        working-directory: libacfutils
+        run: |
+          if [ -d "openal-soft" ]; then
+            find openal-soft -name "CMakeLists.txt" -exec sed -i 's/cmake_minimum_required(VERSION 3\.0\.2)/cmake_minimum_required(VERSION 3.5...3.27)/g' {} \;
+          fi
+
+      - name: Build libacfutils dependencies
+        working-directory: libacfutils
+        run: |
+          chmod +x build_deps
+          ./build_deps
+
+      - name: Build libacfutils library
+        working-directory: libacfutils/qmake
+        run: |
+          chmod +x build-win-lin
+          ./build-win-lin
+
+      - name: Build for Linux
+        working-directory: BetterPusbackMod
+        run: |
+          cd src
+          rm -rf CMakeCache.txt CMakeFiles/ cmake_install.cmake Makefile
+          cmake -DCMAKE_BUILD_TYPE=Release .
+          make -j$(nproc)
+
+      - name: Build for Windows (cross-compile)
+        working-directory: BetterPusbackMod
+        run: |
+          cd src
+          rm -rf CMakeCache.txt CMakeFiles/ cmake_install.cmake Makefile
+          cmake -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=XCompile.cmake \
+            -DHOST=x86_64-w64-mingw32 .
+          make -j$(nproc)
+          rm -f libBetterPushback.xpl.dll.a || true
+
+      - name: Strip binaries
+        working-directory: BetterPusbackMod
+        run: |
+          strip win_x64/BetterPushback.xpl || true
+          strip lin_x64/BetterPushback.xpl || true
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BetterPushback-Linux
+          path: BetterPusbackMod/lin_x64/
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BetterPushback-Windows
+          path: BetterPusbackMod/win_x64/
+
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout BetterPusbackMod
+        uses: actions/checkout@v4
+        with:
+          path: BetterPusbackMod
+          fetch-depth: 0
+
+      - name: Checkout libacfutils
+        uses: actions/checkout@v4
+        with:
+          repository: olivierbutler/libacfutils
+          path: libacfutils
+
+      - name: Install build dependencies
+        run: |
+          brew install cmake automake autoconf libtool qt@5
+          echo 'export PATH="/opt/homebrew/opt/qt@5/bin:$PATH"' >> ~/.bash_profile
+          export PATH="/opt/homebrew/opt/qt@5/bin:$PATH"
+
+      - name: Patch OpenAL CMakeLists.txt for CMake compatibility
+        working-directory: libacfutils
+        run: |
+          if [ -d "openal-soft" ]; then
+            find openal-soft -name "CMakeLists.txt" -exec sed -i '' 's/cmake_minimum_required(VERSION 3\.0\.2)/cmake_minimum_required(VERSION 3.5...3.27)/g' {} \;
+          fi
+
+      - name: Build libacfutils dependencies
+        working-directory: libacfutils
+        run: |
+          chmod +x build_deps
+          ./build_deps
+
+      - name: Build libacfutils library
+        working-directory: libacfutils/qmake
+        run: |
+          export PATH="/opt/homebrew/opt/qt@5/bin:/usr/local/opt/qt@5/bin:$PATH"
+          chmod +x build-mac
+          ./build-mac
+
+      - name: Build for macOS
+        working-directory: BetterPusbackMod
+        run: |
+          cd src
+          rm -rf CMakeCache.txt CMakeFiles/ cmake_install.cmake Makefile
+          cmake -DCMAKE_BUILD_TYPE=Release .
+          make -j$(sysctl -n hw.ncpu)
+
+      - name: Strip binary
+        working-directory: BetterPusbackMod
+        run: |
+          strip -x mac_x64/BetterPushback.xpl || true
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BetterPushback-macOS
+          path: BetterPusbackMod/mac_x64/
