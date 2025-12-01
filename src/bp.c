@@ -86,6 +86,7 @@
 #define    PB_CRADLE_DELAY        10    /* seconds */
 #define    PB_CONN_LIFT_DELAY    13.0    /* seconds */
 #define    PB_CONN_LIFT_DURATION    9.0    /* seconds */
+#define    PB_TOWBAR_CONNECT_DELAY    6.5    /* seconds, towbar connection time */
 #define    PB_START_DELAY        5    /* seconds */
 #define    PB_LIFT_TE        0.075    /* fraction */
 #define    STATE_TRANS_DELAY    2    /* seconds, state transition delay */
@@ -2555,7 +2556,7 @@ pb_step_connect_towbar(void) {
      * Towbar connection takes a short delay to simulate attaching
      * the towbar to the aircraft nosewheel tow fitting.
      */
-    if (d_t >= PB_CONN_LIFT_DELAY / 2) {
+    if (d_t >= PB_TOWBAR_CONNECT_DELAY) {
         bp.step++;
         bp.step_start_t = bp.cur_t;
     }
@@ -2590,9 +2591,8 @@ pb_step_lift(void) {
      * lifting the aircraft's nose.
      */
     if (is_towbar) {
-        /* Towbar connection is faster - no lifting needed */
-        lift_fract = 1.0;
-        tug_set_lift_pos(0);  /* No lift animation for towbar */
+        /* No lift animation for towbar */
+        tug_set_lift_pos(0);
 
         /* Keep brakes set during connection */
         if (!slave_mode && !cfg_ignore_park_break) {
@@ -2605,7 +2605,8 @@ pb_step_lift(void) {
             tug_set_lift_in_transit(B_FALSE);
         }
 
-        if (d_t >= STATE_TRANS_DELAY * 2) {
+        /* Connection complete after double state transition delay */
+        if (d_t >= 2 * STATE_TRANS_DELAY) {
             bp_connected = B_TRUE;
             if (late_plan_requested) {
                 if (!late_plan_end_cond()) {
