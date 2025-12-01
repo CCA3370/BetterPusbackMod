@@ -38,11 +38,15 @@ jobs:
             zip \
             gettext \
             libgl1-mesa-dev \
+            libglu1-mesa-dev \
             qt5-qmake \
             qtbase5-dev \
+            qtbase5-dev-tools \
+            qtchooser \
             mingw-w64 \
-            gcc-mingw-w64 \
-            g++-mingw-w64 \
+            mingw-w64-x86-64-dev \
+            gcc-mingw-w64-x86-64 \
+            g++-mingw-w64-x86-64 \
             libz-mingw-w64-dev \
             pkg-config \
             libasound2-dev \
@@ -50,26 +54,40 @@ jobs:
             libpulse-dev \
             libsoundio-dev \
             libx11-dev \
-            libxcursor-dev
+            libxcursor-dev \
+            automake \
+            autoconf \
+            libtool \
+            unzip
+
+      - name: Build libacfutils dependencies
+        working-directory: libacfutils
+        run: |
+          chmod +x build_deps
+          ./build_deps
+
+      - name: Build libacfutils library
+        working-directory: libacfutils/qmake
+        run: |
+          chmod +x build-win-lin
+          ./build-win-lin
 
       - name: Build for Linux
         working-directory: BetterPusbackMod
         run: |
           cd src
-          rm -f CMakeCache.txt
+          rm -rf CMakeCache.txt CMakeFiles/ cmake_install.cmake Makefile
           cmake -DCMAKE_BUILD_TYPE=Release .
-          make clean || true
           make -j$(nproc)
 
       - name: Build for Windows (cross-compile)
         working-directory: BetterPusbackMod
         run: |
           cd src
-          rm -f CMakeCache.txt
+          rm -rf CMakeCache.txt CMakeFiles/ cmake_install.cmake Makefile
           cmake -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=XCompile.cmake \
             -DHOST=x86_64-w64-mingw32 .
-          make clean || true
           make -j$(nproc)
           rm -f libBetterPushback.xpl.dll.a || true
 
@@ -110,15 +128,29 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          brew install cmake
+          brew install cmake automake autoconf libtool qt@5
+          echo 'export PATH="/opt/homebrew/opt/qt@5/bin:$PATH"' >> ~/.bash_profile
+          export PATH="/opt/homebrew/opt/qt@5/bin:$PATH"
+
+      - name: Build libacfutils dependencies
+        working-directory: libacfutils
+        run: |
+          chmod +x build_deps
+          ./build_deps
+
+      - name: Build libacfutils library
+        working-directory: libacfutils/qmake
+        run: |
+          export PATH="/opt/homebrew/opt/qt@5/bin:/usr/local/opt/qt@5/bin:$PATH"
+          chmod +x build-mac
+          ./build-mac
 
       - name: Build for macOS
         working-directory: BetterPusbackMod
         run: |
           cd src
-          rm -f CMakeCache.txt
+          rm -rf CMakeCache.txt CMakeFiles/ cmake_install.cmake Makefile
           cmake -DCMAKE_BUILD_TYPE=Release .
-          make clean || true
           make -j$(sysctl -n hw.ncpu)
 
       - name: Strip binary
