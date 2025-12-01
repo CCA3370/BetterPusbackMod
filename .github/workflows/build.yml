@@ -133,17 +133,69 @@ jobs:
           strip win_x64/BetterPushback.xpl || true
           strip lin_x64/BetterPushback.xpl || true
 
-      - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: BetterPushback-Linux
-          path: BetterPusbackMod/lin_x64/
+      - name: Create release package structure
+        working-directory: BetterPusbackMod
+        run: |
+          mkdir -p BetterPushback/lin_x64
+          mkdir -p BetterPushback/win_x64
+          
+          # Copy xpl files
+          cp lin_x64/BetterPushback.xpl BetterPushback/lin_x64/
+          cp win_x64/BetterPushback.xpl BetterPushback/win_x64/
+          
+          # Copy config files
+          cp BetterPushback_doors.cfg BetterPushback/
+          cp plg_exclude.cfg BetterPushback/
+          cp COPYING BetterPushback/
+          
+          # Copy data files
+          mkdir -p BetterPushback/data/msgs
+          cp data/msgs/README.txt BetterPushback/data/msgs/ || true
+          cp data/msgs/cc_aliases.cfg BetterPushback/data/msgs/ || true
+          find data/msgs -type f -iname '*.opus' -exec cp --parents {} BetterPushback/ \;
+          
+          # Copy po files
+          mkdir -p BetterPushback/data/po
+          find data/po -iname '*.po' -exec cp --parents {} BetterPushback/ \;
+          
+          # Copy icon files
+          for DIR in data/icons/*/; do
+            mkdir -p "BetterPushback/$DIR"
+            for FILE in accept_plan.png conn_first.png delete_seg.png place_seg.png cancel_plan.png move_view.png rotate_seg.png disconnect.png reconnect.png; do
+              cp "$DIR$FILE" "BetterPushback/$DIR" 2>/dev/null || true
+            done
+          done
+          cp data/icons/en/planner.png BetterPushback/data/icons/en/ || true
+          cp data/icons/en/push-back.png BetterPushback/data/icons/en/ || true
+          cp data/icons/en/conn_first_mb.png BetterPushback/data/icons/en/ || true
+          cp data/icons/en/status.png BetterPushback/data/icons/en/ || true
+          
+          # Copy font files
+          mkdir -p BetterPushback/data/fonts
+          find data/fonts -iname '*.otf' -o -iname '*.ttf' | while read f; do
+            cp --parents "$f" BetterPushback/
+          done
+          
+          # Copy objects
+          mkdir -p BetterPushback/objects/tugs
+          cp objects/night_lamp.obj BetterPushback/objects/
+          cp objects/tugs/LIVERIES_HOWTO.txt BetterPushback/objects/tugs/ || true
+          cp objects/tugs/readme.txt BetterPushback/objects/tugs/ || true
+          
+          # Copy tug files
+          find objects/tugs/*.tug -type f \( -iname '*.obj' -o -iname '*.cfg' -o -iname '*.wav' -o -iname '*.opus' -o -iname '*.png' \) | while read f; do
+            cp --parents "$f" BetterPushback/
+          done
+          
+          # Copy override files
+          mkdir -p BetterPushback/objects/override
+          find objects/override -iname '*.acf' -exec cp --parents {} BetterPushback/ \;
 
-      - name: Upload Windows artifact
+      - name: Upload Linux & Windows release package
         uses: actions/upload-artifact@v4
         with:
-          name: BetterPushback-Windows
-          path: BetterPusbackMod/win_x64/
+          name: BetterPushback-Linux-Windows
+          path: BetterPusbackMod/BetterPushback/
 
   build-macos:
     name: Build macOS
@@ -229,8 +281,41 @@ jobs:
         run: |
           strip -x mac_x64/BetterPushback.xpl || true
 
-      - name: Upload macOS artifact
+      - name: Upload macOS binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BetterPushback-macOS
+          name: BetterPushback-macOS-binary
           path: BetterPusbackMod/mac_x64/
+
+  package-release:
+    name: Package Release
+    needs: [build-linux-windows, build-macos]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout BetterPusbackMod
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Linux & Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: BetterPushback-Linux-Windows
+          path: BetterPushback/
+
+      - name: Download macOS binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: BetterPushback-macOS-binary
+          path: BetterPushback/mac_x64/
+
+      - name: Create release zip
+        run: |
+          zip -r BetterPushback.zip BetterPushback/
+
+      - name: Upload complete release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: BetterPushback-Complete
+          path: BetterPushback.zip
