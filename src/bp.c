@@ -893,6 +893,9 @@ turn_nosewheel(double req_steer) {
  *   Two pivot points:
  *   - Hinge A: between tug rear and towbar (can rotate freely)
  *   - Hinge B: between towbar and aircraft nosewheel (limited by steering angle)
+
+/* Maximum towbar deflection angle in degrees */
+#define    TOWBAR_MAX_DEFLECTION    60
  *
  * The towbar acts as a rigid link between the tug and aircraft. When the
  * tug moves, the towbar angle changes at both hinges, which affects the
@@ -1009,9 +1012,12 @@ turn_nosewheel_towbar(double req_steer) {
     double towbar_len = bp_ls.tug->info->towbar_length;
     double tug_turn_r;
 
-    if (ABS(bp_ls.tug->cur_steer) > 0.01) {
+    if (ABS(bp_ls.tug->cur_steer) > 0.01 && ABS(bp_ls.tug->cur_steer) < 89.9) {
         tug_turn_r = (1 / tan(DEG2RAD(bp_ls.tug->cur_steer))) *
                      bp_ls.tug->veh.wheelbase;
+    } else if (ABS(bp_ls.tug->cur_steer) >= 89.9) {
+        /* Near 90 degrees, use a very small radius */
+        tug_turn_r = bp_ls.tug->veh.wheelbase * 0.01;
     } else {
         tug_turn_r = 1e10;
     }
@@ -1024,9 +1030,15 @@ turn_nosewheel_towbar(double req_steer) {
      * and the towbar's leverage on the nosewheel. The longer the
      * towbar, the less direct the coupling.
      */
-    double leverage = bp_ls.tug->veh.wheelbase / (towbar_len + bp_ls.tug->veh.wheelbase);
-    d_hdg = RAD2DEG(asin(sin(DEG2RAD(rel_turn_rate * bp.d_t)) * leverage /
-                         bp.veh.wheelbase));
+    double denominator = towbar_len + bp_ls.tug->veh.wheelbase;
+    double leverage = (denominator > 0.1) ?
+        bp_ls.tug->veh.wheelbase / denominator : 1.0;
+
+    /* Calculate asin argument and clamp to valid range [-1, 1] */
+    double asin_arg = (bp.veh.wheelbase > 0.1) ?
+        sin(DEG2RAD(rel_turn_rate * bp.d_t)) * leverage / bp.veh.wheelbase : 0;
+    asin_arg = MIN(MAX(asin_arg, -1.0), 1.0);
+    d_hdg = RAD2DEG(asin(asin_arg));
 
     /* Apply heading correction - similar amplification as cradle tugs */
     reorient_aircraft(0, 0, 8 * d_hdg);
@@ -1045,8 +1057,16 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
 
     tug_spd = tug_speed();
 
-    radius = tan(DEG2RAD(90 - bp_ls.tug->cur_steer)) *
-             bp_ls.tug->veh.wheelbase;
+    /*
+     * Avoid division by zero when steering angle approaches 90 degrees.
+     * tan(90 - x) = cot(x) = 1/tan(x), which is undefined at x = 0.
+     */
+    if (ABS(bp_ls.tug->cur_steer) > 0.01) {
+        radius = tan(DEG2RAD(90 - bp_ls.tug->cur_steer)) *
+                 bp_ls.tug->veh.wheelbase;
+    } else {
+        radius = 1e10;  /* Effectively straight */
+    }
 
     if (pos_only) {
         tug_hdg = bp_ls.tug->pos.hdg;
@@ -1056,7 +1076,7 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
          * maintains its own heading based on towbar geometry.
          */
         tug_hdg = normalize_hdg(my_hdg + steer);
-    } else if (fabs(radius) < 1e3) {
+    } else if (fabs(radius) < 1e3 && fabs(radius) > 0.01) {
         double d_hdg = RAD2DEG(tug_spd / radius) * bp.d_t;
         double r_hdg;
 
@@ -1066,11 +1086,10 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
          * because the towbar can pivot at both ends.
          */
         r_hdg = rel_hdg(my_hdg, tug_hdg);
-        double max_towbar_angle = 60; /* Maximum towbar deflection */
-        if (r_hdg > max_towbar_angle)
-            tug_hdg = normalize_hdg(my_hdg + max_towbar_angle);
-        else if (r_hdg < -max_towbar_angle)
-            tug_hdg = normalize_hdg(my_hdg - max_towbar_angle);
+        if (r_hdg > TOWBAR_MAX_DEFLECTION)
+            tug_hdg = normalize_hdg(my_hdg + TOWBAR_MAX_DEFLECTION);
+        else if (r_hdg < -TOWBAR_MAX_DEFLECTION)
+            tug_hdg = normalize_hdg(my_hdg - TOWBAR_MAX_DEFLECTION);
     } else {
         tug_hdg = bp_ls.tug->pos.hdg;
     }
