@@ -859,12 +859,23 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
     tug_info_t *ti, *ti_oth;
     void *cookie = NULL;
     size_t cap = 0;
+    int forced_tug_type = cfg_get_forced_tug_type();
+    /* Names must match FORCED_TUG_* constants order in cfg.h */
+    static const char *forced_type_names[FORCED_TUG_COUNT] = {
+        "auto", "grab", "winch", "towbar"
+    };
 
     if (reason != NULL) {
         ASSERT3P(*reason, ==, NULL);
         append_format(reason, &cap, "ACF: mtow: %.0f nlg_len: %.2f "
-                                    "tirrad: %.3f gear_type: %u icao: %s\n", mtow, ng_len,
-                      tirrad, gear_type, arpt != NULL ? arpt : "(nil)");
+                                    "tirrad: %.3f gear_type: %u icao: %s",
+                      mtow, ng_len, tirrad, gear_type,
+                      arpt != NULL ? arpt : "(nil)");
+        if (forced_tug_type != FORCED_TUG_AUTO) {
+            append_format(reason, &cap, " forced_type: %s",
+                          forced_type_names[forced_tug_type]);
+        }
+        append_format(reason, &cap, "\n");
     }
 
     tugdir = mkpathname(bp_xpdir, bp_plugindir, "objects", "tugs", NULL);
@@ -884,6 +895,7 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
     while ((de = readdir(dirp)) != NULL) {
         const char *dot;
         char *tugpath;
+        bool_t lift_type_matches = B_TRUE;
 
         if ((dot = strrchr(de->d_name, '.')) == NULL ||
             strcmp(&dot[1], "tug") != 0)
@@ -897,6 +909,18 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
             free(tugpath);
             goto out;
         }
+
+        /*
+         * Check if forced tug type is enabled and matches
+         */
+        if (ti != NULL && forced_tug_type != FORCED_TUG_AUTO) {
+            lift_type_matches = (
+                (forced_tug_type == FORCED_TUG_GRAB && ti->lift_type == LIFT_GRAB) ||
+                (forced_tug_type == FORCED_TUG_WINCH && ti->lift_type == LIFT_WINCH) ||
+                (forced_tug_type == FORCED_TUG_TOWBAR && ti->lift_type == LIFT_TOWBAR)
+            );
+        }
+
         /*
          * A tug matches our selection criteria iff:
          * 1) it could be read AND
@@ -906,22 +930,25 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
          * 5) our nose gear radius matches its min and max tire radius
          * 6) if the caller provided an airport identifier and the
          *	tug is airport-specific, then the airport ID matches
+         * 7) if a tug type is forced, the lift_type must match
          */
         if (ti != NULL && reason != NULL) {
             append_format(reason, &cap, "%s: min_mtow: %.0f "
                                         "max_mtow: %.0f min_tirrad: %.3f max_tirrad: %.3f "
-                                        "min_nlg_len: %.2f gear_compat: %x icao: %s; "
+                                        "min_nlg_len: %.2f gear_compat: %x icao: %s lift_type: %d; "
                                         "result=", de->d_name, ti->min_mtow, ti->max_mtow,
                           ti->min_tirrad, ti->max_tirrad, ti->min_nlg_len,
                           ti->gear_compat,
-                          ti->arpt != NULL ? ti->arpt : "(nil)");
+                          ti->arpt != NULL ? ti->arpt : "(nil)",
+                          ti->lift_type);
         }
         if (ti != NULL && ti->min_mtow <= mtow &&
             mtow <= ti->max_mtow && ti->min_nlg_len <= ng_len &&
             ti->min_tirrad <= tirrad && ti->max_tirrad >= tirrad &&
             (arpt == NULL || ti->arpt == NULL ||
              strcmp(arpt, ti->arpt) == 0) &&
-            ((1 << gear_type) & ti->gear_compat) != 0) {
+            ((1 << gear_type) & ti->gear_compat) != 0 &&
+            lift_type_matches) {
             if (reason != NULL)
                 append_format(reason, &cap, "ACCEPT\n");
             avl_add(&tis, ti);
