@@ -23,3 +23,5 @@ Dockerfile.linux
 docker-compose.yml
 Dockerfile.windows
 build_xpl_ob.sh
+_codeql_*
+src/_codeql_*

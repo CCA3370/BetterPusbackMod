@@ -573,6 +573,8 @@ tug_info_read(const char *tugdir, const char *tug_name, const char *icao,
     ti->max_TE = NAN;
     ti->plat_z = NAN;
     ti->plat_h = NAN;
+    ti->towbar_length = NAN;
+    ti->towbar_hitch_z = NAN;
     ti->sort_rand = crc64_rand();
 
     /* set some defaults */
@@ -716,13 +718,19 @@ tug_info_read(const char *tugdir, const char *tug_name, const char *icao,
                 ti->lift_type = LIFT_GRAB;
             } else if (strcmp(type, "winch") == 0) {
                 ti->lift_type = LIFT_WINCH;
+            } else if (strcmp(type, "towbar") == 0) {
+                ti->lift_type = LIFT_TOWBAR;
             } else {
                 logMsg(BP_ERROR_LOG "Malformed tug config file %s: invalid "
                        "value \"%s\" for \"lift_type\" (expected "
-                       "\"grab\" or \"winch\").", cfgfilename,
+                       "\"grab\", \"winch\", or \"towbar\").", cfgfilename,
                        type);
                 goto errout;
             }
+        } else if (strcmp(option, "towbar_length") == 0) {
+            READ_NUMBER("%lf", "towbar_length", &ti->towbar_length);
+        } else if (strcmp(option, "towbar_hitch_z") == 0) {
+            READ_NUMBER("%lf", "towbar_hitch_z", &ti->towbar_hitch_z);
         } else if (strcmp(option, "lift_wall_loc") == 0) {
             char type[16];
             if (fscanf(fp, "%15s", type) != 1) {
@@ -808,6 +816,10 @@ tug_info_read(const char *tugdir, const char *tug_name, const char *icao,
     if (ti->lift_type == LIFT_WINCH) {
         VALIDATE_TUG_REAL_NAN(ti->plat_z, "plat_z");
         VALIDATE_TUG_REAL_NAN(ti->plat_h, "plat_h");
+    }
+    if (ti->lift_type == LIFT_TOWBAR) {
+        VALIDATE_TUG_REAL_NAN(ti->towbar_length, "towbar_length");
+        VALIDATE_TUG_REAL_NAN(ti->towbar_hitch_z, "towbar_hitch_z");
     }
 
     if (ti->engine_snd_in == NULL)
@@ -1863,4 +1875,15 @@ tug_set_clear_signal(bool_t on, bool_t right) {
 void
 tug_set_lift_in_transit(bool_t flag) {
     anim[ANIM_LIFT_IN_TRANSIT].value = flag;
+}
+
+/*
+ * Returns true if the tug is a towbar-type tug.
+ * Towbar tugs connect to the aircraft via a rigid bar with two articulation
+ * points (tug-towbar hinge and towbar-aircraft connection).
+ */
+bool_t
+tug_is_towbar(const tug_t *tug) {
+    return (tug != NULL && tug->info != NULL &&
+            tug->info->lift_type == LIFT_TOWBAR);
 }
