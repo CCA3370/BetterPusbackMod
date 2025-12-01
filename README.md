@@ -72,10 +72,10 @@ To add a voice set, see `data/msgs/README.txt` for the information.
 
 ### libacfutils Library Required
 
-I removed from the project. It need to by downloaded separatly. To make sure you have a matched version, take the fork in my repository.
+I removed from the project. It needs to be downloaded separately. To make sure you have a matched version, take the fork in my repository.
 To connect with the library setup the Library in the "CMakeLists.txt" File in the "src" directory.
 
-file(GLOB LIBACFUTILS "../../../libs/libacfutils")
+file(GLOB LIBACFUTILS "../../libacfutils")
 
 As I found out in the last view days the relation to this library are very hard and many issues come from here ... it is not possible to splitup the library.
 
