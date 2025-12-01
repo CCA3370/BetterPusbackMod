@@ -181,6 +181,19 @@ const char *eye_tracker_tooltip =
   "plugin may cause X-plane to crash.\n"
   "Otherwise this setting must be set to : None.";
 
+const char *force_tug_type_tooltip =
+    "When enabled, forces the use of a specific tug type,\n"
+    "ignoring the automatic selection based on aircraft specifications.\n\n"
+    "Note: If no matching tug of the selected type is available,\n"
+    "pushback will fail. Use with caution.";
+
+const char *forced_tug_type_tooltip =
+    "Select which tug type to force:\n\n"
+    "Automatic: Uses the default selection logic based on aircraft specs.\n"
+    "Grab (Cradle): Tug grabs and lifts the nosewheel using arms.\n"
+    "Winch (Platform): Winches nosewheel onto a platform and lifts.\n"
+    "Towbar: Uses a rigid towbar connection without lifting.";
+
 typedef struct {
   const char *string;
   bool use_chinese;
@@ -242,6 +255,9 @@ comboList_t plg_acf_list = {plg_list_acf_, 0, "##plg_acf_list", 0};
 comboList_t_ *doors_check_list_ = nullptr;
 comboList_t doors_check_list = {doors_check_list_, 0, "##doors_check", 0};
 
+comboList_t_ *tug_type_list_ = nullptr;
+comboList_t tug_type_list = {tug_type_list_, 0, "##tug_type_list", 0};
+
 class SettingsWindow : public XPImgWindow {
 public:
   SettingsWindow(WndMode _mode = WND_MODE_FLOAT_CENTERED);
@@ -257,6 +273,7 @@ public:
     comboList_free(&plg_list);
     comboList_free(&plg_acf_list);
     comboList_free(&doors_check_list);
+    comboList_free(&tug_type_list);
   }
 
   bool_t getIsDestroy(void) { return is_destroy; }
@@ -275,6 +292,8 @@ private:
   bool_t is_destroy;
   bool_t tug_starts_next_plane;
   bool_t tug_auto_start;
+  bool_t force_tug_type_enabled;
+  int forced_tug_type;
   int monitor_id;
   int for_credit;
   int magic_squares_height;
@@ -284,6 +303,7 @@ private:
   void sound_comboList_init(comboList_t *list);
   void plugin_comboList_init(comboList_t *list, bool_t only_aircraft);
   void doorscheck_comboList_init(comboList_t *list);
+  void tugtype_comboList_init(comboList_t *list);
   void comboList_free(comboList_t *list);
   void initPerAircraftSettings(void);
 
@@ -425,6 +445,16 @@ void SettingsWindow::LoadConfig(void) {
 
   doorscheck_comboList_init(&doors_check_list);
   doors_check_list.selected = doors_check;
+
+  // Force tug type settings
+  force_tug_type_enabled = B_FALSE;
+  (void)conf_get_b(bp_conf, "force_tug_type_enabled", &force_tug_type_enabled);
+
+  forced_tug_type = 0;  // 0 = Automatic
+  (void)conf_get_i(bp_conf, "forced_tug_type", &forced_tug_type);
+
+  tugtype_comboList_init(&tug_type_list);
+  tug_type_list.selected = forced_tug_type;
 }
 
 void SettingsWindow::plugin_comboList_init(comboList_t *list,  bool_t only_aircraft) {
@@ -499,6 +529,26 @@ void SettingsWindow::doorscheck_comboList_init(comboList_t *list) {
 
   for (int i = 0; i < 3; ++i) {
     list->combo_list[i].string = strdup(doors_check_strings[i]);
+    list->combo_list[i].use_chinese = B_FALSE;
+    list->combo_list[i].value = strdup("");
+  }
+}
+
+void SettingsWindow::tugtype_comboList_init(comboList_t *list) {
+  // Options for tug type selection
+  // 0 = Auto, 1 = LIFT_GRAB, 2 = LIFT_WINCH, 3 = LIFT_TOWBAR
+  list->combo_list = (comboList_t_ *)safe_calloc(4, sizeof(comboList_t_));
+  list->list_size = 4;
+
+  static const char* tug_type_strings[] = {
+    _("Automatic"),
+    _("Grab (Cradle)"),
+    _("Winch (Platform)"),
+    _("Towbar")
+  };
+
+  for (int i = 0; i < 4; ++i) {
+    list->combo_list[i].string = strdup(tug_type_strings[i]);
     list->combo_list[i].use_chinese = B_FALSE;
     list->combo_list[i].value = strdup("");
   }
@@ -791,6 +841,42 @@ void SettingsWindow::buildInterface() {
     if (ImGui::Checkbox("##tug_starts_next_plane",
                         (bool *)&tug_starts_next_plane)) {
       (void)conf_set_b(bp_conf, "tug_starts_next_plane", tug_starts_next_plane);
+    }
+
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::Text("%s", _("Force tug type selection"));
+    Tooltip(_(force_tug_type_tooltip));
+
+    ImGui::TableNextColumn();
+    if (ImGui::Checkbox("##force_tug_type_enabled",
+                        (bool *)&force_tug_type_enabled)) {
+      (void)conf_set_b(bp_conf, "force_tug_type_enabled", force_tug_type_enabled);
+      // If disabling, reset to automatic
+      if (!force_tug_type_enabled) {
+        forced_tug_type = 0;
+        tug_type_list.selected = 0;
+        (void)conf_set_i(bp_conf, "forced_tug_type", forced_tug_type);
+      }
+    }
+
+    // Show tug type selector only when force is enabled
+    if (!force_tug_type_enabled) {
+      ImGui::BeginDisabled();
+    }
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::Text("%s", _("Forced tug type"));
+    Tooltip(_(forced_tug_type_tooltip));
+
+    ImGui::TableNextColumn();
+    ImGui::SetNextItemWidth(combowithWidth);
+    if (comboList(&tug_type_list)) {
+      forced_tug_type = tug_type_list.selected;
+      (void)conf_set_i(bp_conf, "forced_tug_type", forced_tug_type);
+    }
+    if (!force_tug_type_enabled) {
+      ImGui::EndDisabled();
     }
 
 /*
@@ -1465,4 +1551,17 @@ void bp_conf_open() {
 
 void cfg_cleanup() {
   XPImgWindowCleanup();
+}
+
+int cfg_get_forced_tug_type(void) {
+  bool_t force_enabled = B_FALSE;
+  int forced_type = FORCED_TUG_AUTO;
+
+  (void)conf_get_b(bp_conf, "force_tug_type_enabled", &force_enabled);
+  if (!force_enabled) {
+    return FORCED_TUG_AUTO;
+  }
+
+  (void)conf_get_i(bp_conf, "forced_tug_type", &forced_type);
+  return forced_type;
 }

@@ -90,6 +90,16 @@ void initMonitorOrigin(void);
 
 void cfg_cleanup(void);
 
+/* Force tug type constants - must match lift_t enum in tug.h */
+enum {
+    FORCED_TUG_AUTO = 0,
+    FORCED_TUG_GRAB = 1,     /* LIFT_GRAB */
+    FORCED_TUG_WINCH = 2,    /* LIFT_WINCH */
+    FORCED_TUG_TOWBAR = 3    /* LIFT_TOWBAR */
+};
+
+int cfg_get_forced_tug_type(void);
+
 #ifdef    __cplusplus
 }
 #endif
