@@ -1041,21 +1041,23 @@ turn_nosewheel_towbar(double req_steer) {
 /*
  * Updates the tug's position for towbar-type tugs.
  * 
- * Towbar tugs face the aircraft (head-to-head) and push by driving BACKWARD:
- * - The tug faces the OPPOSITE direction from the aircraft (head-to-head)
- * - The towbar connects from the tug to the aircraft nosewheel
- * - When pushing back, the tug drives BACKWARD (in reverse, away from aircraft)
- * - This pushes the aircraft backward via the towbar
- * - The towbar can articulate at both the connection point and the nosewheel
+ * Towbar tugs (like GT110) face the aircraft and push by driving FORWARD:
+ * - The tug faces the aircraft (heading = aircraft heading + 180°)
+ * - The towbar connects from the tug's front hitch to the aircraft nosewheel
+ * - When pushing back, the tug drives FORWARD (toward the aircraft)
+ * - This pushes the aircraft backward via the rigid towbar connection
+ * - The towbar can articulate at both the hitch and nosewheel connection
  *
- * Geometry:
- *     ← pushback direction    ← tug reverse direction
+ * Geometry (in aircraft forward direction):
  *     
+ *     [ACF CG] → [Nosewheel] → [Hitch] → [Tug Origin]
+ *                     ↑            ↑           ↑
+ *                   nw_z     towbar_len    -hitch_z
+ *
+ *     ← pushback direction    → tug forward direction
  *     [AIRCRAFT]→ 🛞 <--towbar--> ←[TUG]
- *                  ↑                 ↑
- *              Nosewheel      Tug (facing aircraft,
- *                                  heading = acf_hdg + 180°)
- *                                  drives BACKWARD to push
+ *
+ * When tug drives forward (toward aircraft), aircraft is pushed backward.
  */
 static void
 tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
@@ -1070,10 +1072,8 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
      * For towbar tugs facing the aircraft:
      * - Tug heading = aircraft heading + 180°
      * - Tug's forward direction points toward aircraft
-     * - When pushing back (aircraft going backward), tug goes backward too
-     * - tug_speed() returns speed relative to aircraft direction
-     * - Since tug faces opposite, tug's speed in its own reference frame
-     *   is the same as aircraft speed (both going backward during pushback)
+     * - When pushing back, the aircraft moves backward while tug moves forward
+     * - tug_speed() returns the relative speed between tug and aircraft
      */
     tug_spd = tug_speed();
 
