@@ -920,11 +920,13 @@ turn_nosewheel(double req_steer) {
 static void
 turn_nosewheel_towbar(double req_steer) {
     /*
-     * For towbar tugs, the direction multiplier is inverted because
-     * the tug faces the opposite direction from the aircraft.
-     * When tug.spd > 0 (forward motion), aircraft goes backward.
+     * For towbar tugs facing the aircraft:
+     * - Tug heading = aircraft heading + 180°
+     * - When pushing back, both aircraft and tug move backward
+     * - tug.spd is negative during pushback (backward in tug's reference)
+     * - Steering direction is the same as cradle tugs
      */
-    int dir_mult = (bp_ls.tug->pos.spd <= 0 ? 1 : -1);
+    int dir_mult = (bp_ls.tug->pos.spd >= 0 ? 1 : -1);
     double cur_nw_steer, tug_turn_r, tug_turn_rate, rel_tug_turn_rate;
     double d_steer, d_hdg, turn_inc;
     double towbar_len = bp_ls.tug->info->towbar_length;
@@ -958,11 +960,10 @@ turn_nosewheel_towbar(double req_steer) {
     }
     
     /*
-     * Calculate turn rate. For towbar tugs, the speed is negated
-     * relative to the aircraft because the tug faces opposite direction.
+     * Calculate turn rate using the tug's speed.
+     * bp_ls.tug->pos.spd is already in the correct reference frame.
      */
-    double effective_tug_spd = -bp_ls.tug->pos.spd;
-    tug_turn_rate = (effective_tug_spd / (2 * M_PI * tug_turn_r)) * 360;
+    tug_turn_rate = (bp_ls.tug->pos.spd / (2 * M_PI * tug_turn_r)) * 360;
     rel_tug_turn_rate = tug_turn_rate - bp.d_pos.hdg / bp.d_t;
 
     cur_nw_steer += rel_tug_turn_rate * bp.d_t;
@@ -1020,21 +1021,21 @@ turn_nosewheel_towbar(double req_steer) {
 /*
  * Updates the tug's position for towbar-type tugs.
  * 
- * Towbar tugs face the aircraft (head-to-head) and push by driving FORWARD:
+ * Towbar tugs face the aircraft (head-to-head) and push by driving BACKWARD:
  * - The tug faces the OPPOSITE direction from the aircraft (head-to-head)
  * - The towbar connects from the tug to the aircraft nosewheel
- * - When pushing back, the tug drives FORWARD (in its own direction, away from aircraft)
+ * - When pushing back, the tug drives BACKWARD (in reverse, away from aircraft)
  * - This pushes the aircraft backward via the towbar
  * - The towbar can articulate at both the connection point and the nosewheel
  *
  * Geometry:
- *     ← pushback direction          tug forward direction →
+ *     ← pushback direction    ← tug reverse direction
  *     
- *     [AIRCRAFT]→ 🛞 <--towbar--> ←[TUG]→
+ *     [AIRCRAFT]→ 🛞 <--towbar--> ←[TUG]
  *                  ↑                 ↑
  *              Nosewheel      Tug (facing aircraft,
  *                                  heading = acf_hdg + 180°)
- *                                  drives FORWARD to push
+ *                                  drives BACKWARD to push
  */
 static void
 tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
@@ -1047,12 +1048,14 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
 
     /*
      * For towbar tugs facing the aircraft:
-     * - Aircraft speed is negative when pushing back (going backward)
-     * - Tug speed should be positive (going forward in tug's direction)
-     * - tug_speed() returns aircraft-relative speed, we negate it
-     *   because tug faces opposite direction
+     * - Tug heading = aircraft heading + 180°
+     * - Tug's forward direction points toward aircraft
+     * - When pushing back (aircraft going backward), tug goes backward too
+     * - tug_speed() returns speed relative to aircraft direction
+     * - Since tug faces opposite, tug's speed in its own reference frame
+     *   is the same as aircraft speed (both going backward during pushback)
      */
-    tug_spd = -tug_speed();
+    tug_spd = tug_speed();
 
     /*
      * Calculate the tug's turn radius from its current steering.
@@ -1114,9 +1117,7 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
      * - Hitch point is at towbar_len distance from nosewheel
      * - Towbar articulates properly between hitch and nosewheel
      *
-     * For a simplified model, we assume the towbar roughly follows the
-     * line between hitch and nosewheel. The towbar angle at hitch equals
-     * half the relative angle (symmetric articulation at both ends).
+     * The towbar angle is split between both articulation points.
      */
     double towbar_angle = rel_angle / 2.0;
     
@@ -1126,8 +1127,9 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
      * - Direction = from nosewheel towards where hitch should be
      *
      * Since tug faces aircraft, and hitch is at hitch_z (negative, behind
-     * tug origin in tug coordinates, but toward nosewheel), the hitch
-     * should be in front of the nosewheel (in aircraft's forward direction).
+     * tug origin in tug coordinates), the hitch is actually between tug
+     * origin and nosewheel. The hitch should be in front of the nosewheel
+     * (in aircraft's forward direction).
      */
     vect2_t towbar_dir = hdg2dir(normalize_hdg(my_hdg + towbar_angle));
     vect2_t hitch_pos = vect2_add(nw_pos, vect2_scmul(towbar_dir, towbar_len));
@@ -1135,7 +1137,7 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
     /*
      * Tug origin is at -hitch_z from hitch along tug's direction.
      * Since hitch_z is negative, -hitch_z is positive, so tug origin
-     * is in front of hitch (in tug's forward direction, away from aircraft).
+     * is in tug's forward direction from hitch (toward aircraft).
      */
     tug_pos = vect2_add(hitch_pos, vect2_scmul(tug_dir, -hitch_z));
     
