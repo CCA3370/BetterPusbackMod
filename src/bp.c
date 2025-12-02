@@ -904,42 +904,6 @@ turn_nosewheel(double req_steer) {
  * nosewheel steering and the aircraft heading.
  */
 
-/* Maximum towbar deflection angle in degrees */
-#define    TOWBAR_MAX_DEFLECTION    60
-
-/*
- * Computes the towbar angle at the tug hitch point (hinge A).
- * This is the angle between the tug's heading and the towbar direction.
- * Returns: angle in degrees, positive = towbar deflected to the right
- */
-static double
-towbar_get_hitch_angle(void) {
-    if (bp_ls.tug == NULL || !tug_is_towbar(bp_ls.tug))
-        return 0;
-
-    /* Calculate the vector from tug hitch to aircraft nosewheel */
-    double tug_hdg = bp_ls.tug->pos.hdg;
-    vect2_t tug_pos = bp_ls.tug->pos.pos;
-    vect2_t tug_dir = hdg2dir(tug_hdg);
-
-    /* Tug hitch position in world coordinates */
-    vect2_t hitch_offset = vect2_scmul(tug_dir, bp_ls.tug->info->towbar_hitch_z);
-    vect2_t hitch_pos = vect2_add(tug_pos, hitch_offset);
-
-    /* Aircraft nosewheel position in world coordinates */
-    vect2_t acf_dir = hdg2dir(bp.cur_pos.hdg);
-    vect2_t nw_pos = vect2_add(bp.cur_pos.pos, vect2_scmul(acf_dir, -bp.acf.nw_z));
-
-    /* Vector from hitch to nosewheel */
-    vect2_t hitch_to_nw = vect2_sub(nw_pos, hitch_pos);
-
-    /* Calculate angle relative to tug heading */
-    double towbar_hdg = dir2hdg(hitch_to_nw);
-    double hitch_angle = rel_hdg(tug_hdg, towbar_hdg);
-
-    return hitch_angle;
-}
-
 /*
  * Towbar nosewheel steering function.
  * This handles the dual-articulation kinematics of a towbar tug.
@@ -949,52 +913,53 @@ towbar_get_hitch_angle(void) {
  * 2. Towbar rotates at tug hitch (hinge A) - unconstrained
  * 3. Towbar angle at nosewheel (hinge B) = nosewheel steering angle
  * 4. Aircraft follows based on nosewheel steering constraints
+ *
+ * For towbar tugs, we use a simplified approach similar to cradle tugs:
+ * - The nosewheel steering is computed from the relative heading between
+ *   the tug and aircraft, which is physically determined by the towbar.
+ * - We use gentler steering corrections to prevent oscillation.
  */
 static void
 turn_nosewheel_towbar(double req_steer) {
     int dir_mult = (bp_ls.tug->pos.spd >= 0 ? 1 : -1);
-    double cur_nw_steer, d_steer, d_hdg;
+    double cur_nw_steer, tug_turn_r, tug_turn_rate, rel_tug_turn_rate;
+    double d_steer, d_hdg, turn_inc;
+    double towbar_len = bp_ls.tug->info->towbar_length;
+    vect2_t off_v;
 
     /*
-     * For towbar tugs, the nosewheel steering angle is determined by
-     * the geometry of the towbar connection. The towbar angle at the
-     * nosewheel directly corresponds to the nosewheel steering angle.
+     * For towbar tugs, the nosewheel steering angle is simply the
+     * relative heading between the aircraft and the tug. The towbar
+     * forces this relationship geometrically.
      */
+    cur_nw_steer = rel_hdg(bp.cur_pos.hdg, bp_ls.tug->pos.hdg);
 
-    /* Calculate current geometry */
-    double hitch_angle = towbar_get_hitch_angle();
-
-    /*
-     * The nosewheel steering angle relative to the aircraft heading
-     * is affected by both the towbar angle and the relative heading
-     * between tug and aircraft.
-     */
-    double rel_tug_hdg = rel_hdg(bp.cur_pos.hdg, bp_ls.tug->pos.hdg);
-
-    /*
-     * Nosewheel steering = towbar angle at aircraft end
-     * This is approximately: tug_rel_hdg + hitch_angle + 180 - aircraft_hdg
-     * Simplified: the towbar direction relative to aircraft heading
-     */
-    cur_nw_steer = rel_tug_hdg + hitch_angle;
-
-    /* Clamp to physical steering limits */
-    cur_nw_steer = MIN(cur_nw_steer, bp.veh.max_steer);
-    cur_nw_steer = MAX(cur_nw_steer, -bp.veh.max_steer);
-
-    /* Limit the steering request to what we can actually do */
+    /* limit the steering request to what we can actually do */
     req_steer = MIN(req_steer, bp.veh.max_steer);
     req_steer = MAX(req_steer, -bp.veh.max_steer);
 
+    if (ABS(bp_ls.tug->cur_steer) > 0.01) {
+        tug_turn_r = (1 / tan(DEG2RAD(bp_ls.tug->cur_steer))) *
+                     bp_ls.tug->veh.wheelbase;
+    } else {
+        tug_turn_r = 1e10;
+    }
+    tug_turn_rate = (bp_ls.tug->pos.spd / (2 * M_PI * tug_turn_r)) * 360;
+    rel_tug_turn_rate = tug_turn_rate - bp.d_pos.hdg / bp.d_t;
+
+    cur_nw_steer += rel_tug_turn_rate * bp.d_t;
+    cur_nw_steer = MIN(cur_nw_steer, 85);
+    cur_nw_steer = MAX(cur_nw_steer, -85);
     d_steer = req_steer - cur_nw_steer;
 
     /*
      * Steer the tug to achieve the desired nosewheel angle.
-     * For towbar tugs, the tug steering affects the towbar angle
-     * which in turn affects the nosewheel steering.
+     * For towbar tugs, we use a gentler correction factor (1.5x instead
+     * of 3x for cradle tugs) to prevent oscillation. The towbar's
+     * dual-articulation creates more lag in the system.
      */
     if (ABS(bp_ls.tug->pos.spd) > 0.01) {
-        double tug_steer = dir_mult * 2 * d_steer;
+        double tug_steer = dir_mult * 1.5 * d_steer;
         double speed;
 
         tug_steer = MIN(MAX(tug_steer, -bp_ls.tug->veh.max_steer),
@@ -1006,117 +971,99 @@ turn_nosewheel_towbar(double req_steer) {
         tug_set_steering(bp_ls.tug, tug_steer, bp.d_t);
     }
 
-    /* Apply the computed nosewheel steering */
     dr_setvf(&drs.tire_steer_cmd, &cur_nw_steer, bp.acf.nw_i, 1);
 
     /*
-     * Calculate heading change for the aircraft.
-     * For towbar tugs, the heading change is based on the towbar
-     * pulling/pushing on the nosewheel.
+     * Calculate heading change for the aircraft based on the towbar geometry.
+     * The towbar acts as a lever between the tug and aircraft, but with
+     * two articulation points that provide more flexibility than a cradle.
+     *
+     * We calculate the heading change using the same approach as cradle tugs,
+     * but scaled by the towbar length to account for the different geometry.
+     * The longer the towbar, the more indirect the coupling.
      */
-    double towbar_len = bp_ls.tug->info->towbar_length;
-    double tug_turn_r;
-
-    if (ABS(bp_ls.tug->cur_steer) > 0.01 && ABS(bp_ls.tug->cur_steer) < 89.9) {
-        tug_turn_r = (1 / tan(DEG2RAD(bp_ls.tug->cur_steer))) *
-                     bp_ls.tug->veh.wheelbase;
-    } else if (ABS(bp_ls.tug->cur_steer) >= 89.9) {
-        /* Near 90 degrees, use a very small radius */
-        tug_turn_r = bp_ls.tug->veh.wheelbase * 0.01;
-    } else {
-        tug_turn_r = 1e10;
-    }
-
-    double tug_turn_rate = (bp_ls.tug->pos.spd / (2 * M_PI * tug_turn_r)) * 360;
-    double rel_turn_rate = tug_turn_rate - bp.d_pos.hdg / bp.d_t;
+    turn_inc = rel_tug_turn_rate * bp.d_t;
 
     /*
-     * The aircraft heading change is affected by both the tug's turn
-     * and the towbar's leverage on the nosewheel. The longer the
-     * towbar, the less direct the coupling.
+     * Compute the lateral & longitudinal displacement.
+     * For towbar tugs, we use the towbar length as the effective distance
+     * instead of the nlg_tug_rear_off used in cradle tugs.
      */
-    double denominator = towbar_len + bp_ls.tug->veh.wheelbase;
-    double leverage = (denominator > 0.1) ?
-        bp_ls.tug->veh.wheelbase / denominator : 1.0;
+    off_v.x = sin(DEG2RAD(turn_inc)) * (towbar_len /
+                                        bp_ls.tug->veh.wheelbase);
+    off_v.y = (cos(DEG2RAD(turn_inc)) - 1) * (towbar_len /
+                                              bp_ls.tug->veh.wheelbase);
+    off_v = vect2_rot(off_v, cur_nw_steer);
+    d_hdg = RAD2DEG(asin(MIN(MAX(off_v.x / bp.veh.wheelbase, -1.0), 1.0)));
 
-    /* Calculate asin argument and clamp to valid range [-1, 1] */
-    double asin_arg = (bp.veh.wheelbase > 0.1) ?
-        sin(DEG2RAD(rel_turn_rate * bp.d_t)) * leverage / bp.veh.wheelbase : 0;
-    asin_arg = MIN(MAX(asin_arg, -1.0), 1.0);
-    d_hdg = RAD2DEG(asin(asin_arg));
-
-    /* Apply heading correction - similar amplification as cradle tugs */
+    /*
+     * Apply heading correction with a slightly reduced amplification factor
+     * compared to cradle tugs (8x vs 10x) to account for the towbar's
+     * flexibility at the articulation points.
+     */
     reorient_aircraft(0, 0, 8 * d_hdg);
 }
 
 /*
  * Updates the tug's position for towbar-type tugs.
  * The towbar creates a geometric constraint between the tug and aircraft.
+ * This function positions the tug based on the towbar geometry, similar to
+ * how cradle tugs are positioned but accounting for the different attachment.
  */
 static void
 tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
     double tug_hdg, tug_spd, steer, radius;
-    vect2_t acf_dir, tug_pos;
+    vect2_t dir, tug_pos;
 
     dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
 
     tug_spd = tug_speed();
 
     /*
-     * Avoid division by zero when steering angle approaches 90 degrees.
-     * tan(90 - x) = cot(x) = 1/tan(x), which is undefined at x = 0.
+     * Calculate the tug's turn radius from its current steering.
      */
-    if (ABS(bp_ls.tug->cur_steer) > 0.01) {
-        radius = tan(DEG2RAD(90 - bp_ls.tug->cur_steer)) *
-                 bp_ls.tug->veh.wheelbase;
-    } else {
-        radius = 1e10;  /* Effectively straight */
-    }
+    radius = tan(DEG2RAD(90 - bp_ls.tug->cur_steer)) *
+             bp_ls.tug->veh.wheelbase;
 
     if (pos_only) {
         tug_hdg = bp_ls.tug->pos.hdg;
     } else if (slave_mode) {
         /*
-         * In slave mode, the tug tracks our nosewheel position but
-         * maintains its own heading based on towbar geometry.
+         * In slave mode, the tug tracks our nosewheel position.
          */
         tug_hdg = normalize_hdg(my_hdg + steer);
-    } else if (fabs(radius) < 1e3 && fabs(radius) > 0.01) {
+    } else if (fabs(radius) < 1e3) {
         double d_hdg = RAD2DEG(tug_spd / radius) * bp.d_t;
         double r_hdg;
 
         tug_hdg = normalize_hdg(bp_ls.tug->pos.hdg + d_hdg);
-        /*
-         * For towbar tugs, the heading constraint is less strict
-         * because the towbar can pivot at both ends.
-         */
         r_hdg = rel_hdg(my_hdg, tug_hdg);
-        if (r_hdg > TOWBAR_MAX_DEFLECTION)
-            tug_hdg = normalize_hdg(my_hdg + TOWBAR_MAX_DEFLECTION);
-        else if (r_hdg < -TOWBAR_MAX_DEFLECTION)
-            tug_hdg = normalize_hdg(my_hdg - TOWBAR_MAX_DEFLECTION);
+        /* Apply hard steering stop for towbar tugs */
+        if (r_hdg > bp.veh.max_steer)
+            tug_hdg = normalize_hdg(my_hdg + bp.veh.max_steer);
+        else if (r_hdg < -bp.veh.max_steer)
+            tug_hdg = normalize_hdg(my_hdg - bp.veh.max_steer);
     } else {
         tug_hdg = bp_ls.tug->pos.hdg;
     }
 
     /*
      * Position the tug based on the towbar geometry.
-     * The towbar is a rigid link, so the tug position is constrained
-     * to be at a fixed distance from the aircraft nosewheel.
+     * The tug is positioned in front of the aircraft nosewheel at a distance
+     * equal to the towbar length minus the hitch offset.
      */
-    acf_dir = hdg2dir(my_hdg);
+    dir = hdg2dir(my_hdg);
+    vect2_t tug_dir = hdg2dir(tug_hdg);
 
-    /* Aircraft nosewheel position */
-    vect2_t nw_pos = vect2_add(my_pos, vect2_scmul(acf_dir, -bp.acf.nw_z));
+    /*
+     * Calculate the offset from the nosewheel to the tug position.
+     * For towbar tugs, we use the towbar length and hitch position.
+     */
+    double towbar_offset = bp_ls.tug->info->towbar_length -
+                          bp_ls.tug->info->towbar_hitch_z;
 
-    /* Towbar direction based on relative headings */
-    vect2_t towbar_dir = hdg2dir(tug_hdg);
-
-    /* Tug position is at the other end of the towbar */
-    double total_offset = bp_ls.tug->info->towbar_length -
-                         bp_ls.tug->info->towbar_hitch_z;
-    tug_pos = vect2_add(nw_pos, vect2_scmul(towbar_dir, total_offset));
-
+    tug_pos = vect2_add(vect2_add(my_pos, vect2_scmul(dir, -bp.acf.nw_z)),
+                        vect2_scmul(tug_dir, towbar_offset));
     tug_set_pos(bp_ls.tug, tug_pos, tug_hdg, tug_spd);
 }
 
