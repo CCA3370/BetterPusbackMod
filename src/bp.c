@@ -221,8 +221,6 @@ static int recon_handler(XPLMCommandRef, XPLMCommandPhase, void *);
 
 static bool_t bp_run_push_manual(void);
 
-static double towbar_get_hitch_angle(void);
-
 static double tug_speed(void);
 
 void acf_plg_debut(void);
