@@ -194,6 +194,7 @@ bool_t tug_starts_next_plane = B_FALSE;
 bool_t tug_auto_start = B_FALSE;
 static int previous_beacon;
 bool_t tug_pending_mode;
+bool_t towbar_debug = B_FALSE;
 
 push_manual_t push_manual = {0};
 
@@ -1016,6 +1017,25 @@ turn_nosewheel_towbar(double req_steer) {
      * flexibility at the articulation points.
      */
     reorient_aircraft(0, 0, 8 * d_hdg);
+
+    /*
+     * Debug logging for towbar steering
+     */
+    if (towbar_debug) {
+        static double last_steer_debug_t = 0;
+        if (bp.cur_t - last_steer_debug_t >= 1.0) {  /* Log once per second */
+            last_steer_debug_t = bp.cur_t;
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] === Towbar Steering ===");
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Requested steer: %.1f° Current NW steer: %.1f°",
+                   req_steer, cur_nw_steer);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Tug turn: radius=%.2f rate=%.2f°/s",
+                   tug_turn_r, tug_turn_rate);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Relative turn rate: %.2f°/s d_steer=%.2f°",
+                   rel_tug_turn_rate, d_steer);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Aircraft heading correction: %.3f°",
+                   8 * d_hdg);
+        }
+    }
 }
 
 /*
@@ -1163,6 +1183,33 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
      * For now, set to 0 as vertical geometry is not readily available.
      */
     tug_set_towbar_pitch(0);
+
+    /*
+     * Debug logging for towbar tug physics
+     */
+    if (towbar_debug) {
+        static double last_debug_t = 0;
+        if (bp.cur_t - last_debug_t >= 1.0) {  /* Log once per second */
+            last_debug_t = bp.cur_t;
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] === Towbar Tug Position Update ===");
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Aircraft: pos=(%.2f, %.2f) hdg=%.1f°",
+                   my_pos.x, my_pos.y, my_hdg);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Nosewheel: pos=(%.2f, %.2f) nw_z=%.2f",
+                   nw_pos.x, nw_pos.y, bp.acf.nw_z);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Tug: pos=(%.2f, %.2f) hdg=%.1f° spd=%.2f m/s",
+                   tug_pos.x, tug_pos.y, tug_hdg, tug_spd);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Tug steering: cur_steer=%.1f° radius=%.2f",
+                   bp_ls.tug->cur_steer, radius);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Towbar: len=%.2f hitch_z=%.2f",
+                   towbar_len, hitch_z);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Articulation: rel_angle=%.1f° towbar_angle=%.1f°",
+                   rel_angle, towbar_angle);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Hitch: pos=(%.2f, %.2f)",
+                   hitch_pos.x, hitch_pos.y);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Animation: towbar_heading=%.1f°",
+                   towbar_heading);
+        }
+    }
 }
 
 /*
@@ -2291,6 +2338,16 @@ pb_step_tug_load(void) {
         }
         strlcpy(bp_tug_name, bp_ls.tug->info->tug_name,
                 sizeof(bp_tug_name));
+        
+        /* Debug logging for towbar tug selection */
+        if (towbar_debug && tug_is_towbar(bp_ls.tug)) {
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] === Towbar Tug Selected ===");
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Tug name: %s", bp_ls.tug->info->tug_name);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Towbar length: %.2f m", bp_ls.tug->info->towbar_length);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Hitch Z position: %.2f m", bp_ls.tug->info->towbar_hitch_z);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Wheelbase: %.2f m", bp_ls.tug->veh.wheelbase);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Max steer: %.1f°", bp_ls.tug->veh.max_steer);
+        }
     } else {
         char tug_name[sizeof(bp_tug_name)];
         char *ext;
@@ -2331,6 +2388,16 @@ pb_step_tug_load(void) {
             XPLMSpeakString(msg);
             bp_complete();
             return (B_FALSE);
+        }
+        
+        /* Debug logging for towbar tug selection (manual) */
+        if (towbar_debug && tug_is_towbar(bp_ls.tug)) {
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] === Towbar Tug Selected (Manual) ===");
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Tug name: %s", bp_ls.tug->info->tug_name);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Towbar length: %.2f m", bp_ls.tug->info->towbar_length);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Hitch Z position: %.2f m", bp_ls.tug->info->towbar_hitch_z);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Wheelbase: %.2f m", bp_ls.tug->veh.wheelbase);
+            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Max steer: %.1f°", bp_ls.tug->veh.max_steer);
         }
     }
     if (!bp_ls.tug->info->drive_debug) {
