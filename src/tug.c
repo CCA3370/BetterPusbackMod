@@ -90,6 +90,8 @@ typedef enum {
     ANIM_TUG_POS_X,
     ANIM_TUG_POS_Y,
     ANIM_TUG_POS_Z,
+    ANIM_TOWBAR_HEADING,
+    ANIM_TOWBAR_PITCH,
     TUG_NUM_ANIMS
 } anim_t;
 
@@ -172,7 +174,9 @@ static anim_info_t anim[TUG_NUM_ANIMS] = {
         {.name = "bp/anim/beacon_flash"},
         {.name = "bp/anim/tug_pos_x"},
         {.name = "bp/anim/tug_pos_y"},
-        {.name = "bp/anim/tug_pos_z"}
+        {.name = "bp/anim/tug_pos_z"},
+        {.name = "bp/anim/towbar_heading"},
+        {.name = "bp/anim/towbar_pitch"}
 };
 
 static const char *tug_dr_list[TUG_NUM_ANIMS + 1] = {
@@ -195,6 +199,8 @@ static const char *tug_dr_list[TUG_NUM_ANIMS + 1] = {
         "bp/anim/tug_pos_x",
         "bp/anim/tug_pos_y",
         "bp/anim/tug_pos_z",
+        "bp/anim/towbar_heading",
+        "bp/anim/towbar_pitch",
         NULL
 };
 
@@ -1913,4 +1919,24 @@ bool_t
 tug_is_towbar(const tug_t *tug) {
     return (tug != NULL && tug->info != NULL &&
             tug->info->lift_type == LIFT_TOWBAR);
+}
+
+/*
+ * Sets the towbar heading angle for towbar-type tugs.
+ * The heading is the angle between the tug's longitudinal axis and the towbar,
+ * in degrees. Positive values indicate the towbar is rotated to the right.
+ */
+void
+tug_set_towbar_heading(double heading_deg) {
+    anim[ANIM_TOWBAR_HEADING].value = heading_deg;
+}
+
+/*
+ * Sets the towbar pitch angle for towbar-type tugs.
+ * The pitch is the vertical angle of the towbar, in degrees.
+ * Positive values indicate the towbar is angled upward.
+ */
+void
+tug_set_towbar_pitch(double pitch_deg) {
+    anim[ANIM_TOWBAR_PITCH].value = pitch_deg;
 }

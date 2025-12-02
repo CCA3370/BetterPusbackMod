@@ -1080,6 +1080,23 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
     tug_pos = vect2_add(vect2_add(my_pos, vect2_scmul(dir, -bp.acf.nw_z)),
                         vect2_scmul(tug_dir, towbar_offset));
     tug_set_pos(bp_ls.tug, tug_pos, tug_hdg, tug_spd);
+
+    /*
+     * Calculate and set the towbar heading animation.
+     * The towbar heading is the relative angle between the tug's heading
+     * and the aircraft's heading. This drives the towbar articulation
+     * animation in the tug model.
+     */
+    double towbar_heading = rel_hdg(tug_hdg, my_hdg);
+    tug_set_towbar_heading(towbar_heading);
+
+    /*
+     * Calculate and set the towbar pitch animation.
+     * The pitch depends on the height difference between the tug's hitch
+     * and the aircraft's nosewheel. For now, we set it to 0 as we don't
+     * have the vertical geometry data readily available.
+     */
+    tug_set_towbar_pitch(0);
 }
 
 /*
