@@ -219,6 +219,7 @@ extern bool_t late_plan_requested;
 extern bool_t tug_starts_next_plane;
 extern bool_t tug_auto_start;
 extern bool_t tug_pending_mode;
+extern bool_t towbar_debug;
 
 #ifdef    __cplusplus
 }

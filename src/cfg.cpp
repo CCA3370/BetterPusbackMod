@@ -192,6 +192,13 @@ const char *forced_tug_type_tooltip =
     "without checking aircraft compatibility.\n"
     "The type (Grab/Winch/Towbar) is shown in parentheses.";
 
+const char *towbar_debug_tooltip =
+    "Enable detailed debug logging for towbar tugs.\n\n"
+    "When enabled, additional information about towbar tug physics,\n"
+    "positioning, articulation angles, and steering will be logged\n"
+    "to help diagnose issues with towbar tug behavior.\n\n"
+    "Check Log.txt for the debug output.";
+
 typedef struct {
   const char *string;
   bool use_chinese;
@@ -291,6 +298,7 @@ private:
   bool_t tug_starts_next_plane;
   bool_t tug_auto_start;
   bool_t force_tug_type_enabled;
+  bool_t towbar_debug_enabled;
   int monitor_id;
   int for_credit;
   int magic_squares_height;
@@ -460,6 +468,11 @@ void SettingsWindow::LoadConfig(void) {
       }
     }
   }
+
+  // Towbar debug setting
+  towbar_debug_enabled = B_FALSE;
+  (void)conf_get_b(bp_conf, "towbar_debug", &towbar_debug_enabled);
+  towbar_debug = towbar_debug_enabled;
 }
 
 void SettingsWindow::plugin_comboList_init(comboList_t *list,  bool_t only_aircraft) {
@@ -887,6 +900,18 @@ void SettingsWindow::buildInterface() {
     }
     if (!force_tug_type_enabled) {
       ImGui::EndDisabled();
+    }
+
+    // Towbar debug checkbox
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::Text("%s", _("Towbar tug debug logging"));
+    Tooltip(_(towbar_debug_tooltip));
+
+    ImGui::TableNextColumn();
+    if (ImGui::Checkbox("##towbar_debug_cbox", (bool *)&towbar_debug_enabled)) {
+      (void)conf_set_b(bp_conf, "towbar_debug", towbar_debug_enabled);
+      towbar_debug = towbar_debug_enabled;
     }
 
 /*
