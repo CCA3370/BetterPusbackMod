@@ -1041,21 +1041,23 @@ turn_nosewheel_towbar(double req_steer) {
 /*
  * Updates the tug's position for towbar-type tugs.
  * 
- * Towbar tugs face the aircraft (head-to-head) and push by driving BACKWARD:
- * - The tug faces the OPPOSITE direction from the aircraft (head-to-head)
- * - The towbar connects from the tug to the aircraft nosewheel
- * - When pushing back, the tug drives BACKWARD (in reverse, away from aircraft)
- * - This pushes the aircraft backward via the towbar
- * - The towbar can articulate at both the connection point and the nosewheel
+ * Towbar tugs (like GT110) face the aircraft and push by driving FORWARD:
+ * - The tug faces the aircraft (heading = aircraft heading + 180°)
+ * - The towbar connects from the tug's front hitch to the aircraft nosewheel
+ * - When pushing back, the tug drives FORWARD (toward the aircraft)
+ * - This pushes the aircraft backward via the rigid towbar connection
+ * - The towbar can articulate at both the hitch and nosewheel connection
  *
- * Geometry:
- *     ← pushback direction    ← tug reverse direction
+ * Geometry (in aircraft forward direction):
  *     
+ *     [ACF CG] → [Nosewheel] → [Hitch] → [Tug Origin]
+ *                     ↑            ↑           ↑
+ *                   nw_z     towbar_len    -hitch_z
+ *
+ *     ← pushback direction    → tug forward direction
  *     [AIRCRAFT]→ 🛞 <--towbar--> ←[TUG]
- *                  ↑                 ↑
- *              Nosewheel      Tug (facing aircraft,
- *                                  heading = acf_hdg + 180°)
- *                                  drives BACKWARD to push
+ *
+ * When tug drives forward (toward aircraft), aircraft is pushed backward.
  */
 static void
 tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
@@ -1070,10 +1072,8 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
      * For towbar tugs facing the aircraft:
      * - Tug heading = aircraft heading + 180°
      * - Tug's forward direction points toward aircraft
-     * - When pushing back (aircraft going backward), tug goes backward too
-     * - tug_speed() returns speed relative to aircraft direction
-     * - Since tug faces opposite, tug's speed in its own reference frame
-     *   is the same as aircraft speed (both going backward during pushback)
+     * - When pushing back, the aircraft moves backward while tug moves forward
+     * - tug_speed() returns the relative speed between tug and aircraft
      */
     tug_spd = tug_speed();
 
@@ -1153,18 +1153,26 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
      * - Distance = towbar_len
      * - Direction = from nosewheel towards where hitch should be
      *
-     * Since tug faces aircraft, and hitch is at hitch_z (negative, behind
-     * tug origin in tug coordinates), the hitch is actually between tug
-     * origin and nosewheel. The hitch should be in front of the nosewheel
-     * (in aircraft's forward direction).
+     * For GT110 towbar tug:
+     * - hitch_z is positive (hitch at front of tug, facing aircraft)
+     * - The hitch is between nosewheel and tug origin
+     * - Geometry: [Nosewheel] --towbar--> [Hitch] --> [Tug Origin]
      */
     vect2_t towbar_dir = hdg2dir(normalize_hdg(my_hdg + towbar_angle));
     vect2_t hitch_pos = vect2_add(nw_pos, vect2_scmul(towbar_dir, towbar_len));
     
     /*
-     * Tug origin is at -hitch_z from hitch along tug's direction.
-     * Since hitch_z is negative, -hitch_z is positive, so tug origin
-     * is in tug's forward direction from hitch (toward aircraft).
+     * Tug origin is at |hitch_z| distance from hitch.
+     * - For positive hitch_z (hitch at front of tug, facing aircraft):
+     *   tug origin is BEHIND the hitch, so move opposite to tug_dir
+     * - tug_dir points toward aircraft (tug faces aircraft)
+     * - Formula: tug_origin = hitch - tug_dir * hitch_z
+     *                       = hitch + tug_dir * (-hitch_z)
+     *
+     * Example: For hitch_z = +2.0m (hitch at front of tug):
+     *   tug_origin = hitch_pos + tug_dir * (-2.0)
+     * This moves the tug 2.0m opposite to tug_dir (away from aircraft),
+     * correctly placing the tug origin behind the hitch.
      */
     tug_pos = vect2_add(hitch_pos, vect2_scmul(tug_dir, -hitch_z));
     
