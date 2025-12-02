@@ -1153,27 +1153,28 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
      * - Distance = towbar_len
      * - Direction = from nosewheel towards where hitch should be
      *
-     * Since tug faces aircraft, and hitch is at hitch_z (negative, behind
-     * tug origin in tug coordinates), the hitch is actually between tug
-     * origin and nosewheel. The hitch should be in front of the nosewheel
-     * (in aircraft's forward direction).
+     * For GT110 towbar tug:
+     * - hitch_z is positive (hitch at front of tug, facing aircraft)
+     * - The hitch is between nosewheel and tug origin
+     * - Geometry: [Nosewheel] --towbar--> [Hitch] --> [Tug Origin]
      */
     vect2_t towbar_dir = hdg2dir(normalize_hdg(my_hdg + towbar_angle));
     vect2_t hitch_pos = vect2_add(nw_pos, vect2_scmul(towbar_dir, towbar_len));
     
     /*
-     * Tug origin is at |hitch_z| distance from hitch AWAY from the aircraft.
-     * Since hitch_z is negative (hitch is behind tug origin in tug coords),
-     * and tug_dir points TOWARD the aircraft (tug faces aircraft), we need
-     * to move in the OPPOSITE direction of tug_dir to place the tug origin
-     * further from the aircraft than the hitch.
-     * 
-     * Example: For hitch_z = -4.25m:
-     *   tug_origin = hitch_pos + tug_dir * (-4.25)
-     * This effectively moves the tug 4.25m opposite to tug_dir (away from
-     * aircraft), correctly placing the tug origin behind the hitch.
+     * Tug origin is at |hitch_z| distance from hitch.
+     * - For positive hitch_z (hitch at front of tug, facing aircraft):
+     *   tug origin is BEHIND the hitch, so move opposite to tug_dir
+     * - tug_dir points toward aircraft (tug faces aircraft)
+     * - Formula: tug_origin = hitch - tug_dir * hitch_z
+     *                       = hitch + tug_dir * (-hitch_z)
+     *
+     * Example: For hitch_z = +2.0m (hitch at front of tug):
+     *   tug_origin = hitch_pos + tug_dir * (-2.0)
+     * This moves the tug 2.0m opposite to tug_dir (away from aircraft),
+     * correctly placing the tug origin behind the hitch.
      */
-    tug_pos = vect2_add(hitch_pos, vect2_scmul(tug_dir, hitch_z));
+    tug_pos = vect2_add(hitch_pos, vect2_scmul(tug_dir, -hitch_z));
     
     tug_set_pos(bp_ls.tug, tug_pos, tug_hdg, tug_spd);
 
