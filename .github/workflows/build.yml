@@ -65,6 +65,7 @@ jobs:
             qtbase5-dev \
             qtbase5-dev-tools \
             qtchooser \
+            cmake \
             mingw-w64 \
             mingw-w64-x86-64-dev \
             gcc-mingw-w64-x86-64 \
@@ -234,7 +235,7 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          brew install cmake automake autoconf libtool qt@5
+          brew install automake autoconf libtool qt@5
           echo 'export PATH="/opt/homebrew/opt/qt@5/bin:$PATH"' >> ~/.bash_profile
           export PATH="/opt/homebrew/opt/qt@5/bin:$PATH"
 
