@@ -934,15 +934,23 @@ turn_nosewheel_towbar(double req_steer) {
      */
     cur_nw_steer = rel_hdg(bp.cur_pos.hdg, bp_ls.tug->pos.hdg);
 
-    /* limit the steering request to what we can actually do */
+    /* Limit the steering request to what we can actually do */
     req_steer = MIN(req_steer, bp.veh.max_steer);
     req_steer = MAX(req_steer, -bp.veh.max_steer);
 
-    if (ABS(bp_ls.tug->cur_steer) > 0.01) {
+    /*
+     * Calculate the tug's turn radius from its current steering.
+     * Handle edge cases: near-zero steering (straight) and near-90 degrees.
+     */
+    if (ABS(bp_ls.tug->cur_steer) < 0.01) {
+        /* Near-zero steering - effectively going straight */
+        tug_turn_r = 1e10;
+    } else if (ABS(bp_ls.tug->cur_steer) > 89.0) {
+        /* Near 90 degrees - very tight turn */
+        tug_turn_r = bp_ls.tug->veh.wheelbase * 0.01;
+    } else {
         tug_turn_r = (1 / tan(DEG2RAD(bp_ls.tug->cur_steer))) *
                      bp_ls.tug->veh.wheelbase;
-    } else {
-        tug_turn_r = 1e10;
     }
     tug_turn_rate = (bp_ls.tug->pos.spd / (2 * M_PI * tug_turn_r)) * 360;
     rel_tug_turn_rate = tug_turn_rate - bp.d_pos.hdg / bp.d_t;
@@ -1021,9 +1029,18 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
 
     /*
      * Calculate the tug's turn radius from its current steering.
+     * Handle edge cases: near-zero steering and near-90 degrees.
      */
-    radius = tan(DEG2RAD(90 - bp_ls.tug->cur_steer)) *
-             bp_ls.tug->veh.wheelbase;
+    if (ABS(bp_ls.tug->cur_steer) < 0.01) {
+        /* Near-zero steering - effectively going straight */
+        radius = 1e10;
+    } else if (ABS(bp_ls.tug->cur_steer) > 89.0) {
+        /* Near 90 degrees - very tight turn */
+        radius = bp_ls.tug->veh.wheelbase * 0.01;
+    } else {
+        radius = tan(DEG2RAD(90 - bp_ls.tug->cur_steer)) *
+                 bp_ls.tug->veh.wheelbase;
+    }
 
     if (pos_only) {
         tug_hdg = bp_ls.tug->pos.hdg;
