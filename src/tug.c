@@ -16,10 +16,13 @@
  * Copyright 2022 Saso Kiselkov. All rights reserved.
  */
 
-#include <dirent.h>
 #include <errno.h>
 #include <string.h>
 #include <stddef.h>
+
+#if	!IBM
+#include <dirent.h>
+#endif
 
 #define PCRE2_CODE_UNIT_WIDTH 8
 
