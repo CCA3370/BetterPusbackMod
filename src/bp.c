@@ -1117,7 +1117,14 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
      * - Hitch point is at towbar_len distance from nosewheel
      * - Towbar articulates properly between hitch and nosewheel
      *
-     * The towbar angle is split between both articulation points.
+     * The towbar is a rigid link with articulation at both ends:
+     * - Hinge A: at tug's hitch point (can rotate freely)
+     * - Hinge B: at aircraft nosewheel (limited by steering angle)
+     *
+     * For symmetric articulation, we split the relative angle equally
+     * between both hinges. This means the towbar angle at the hitch
+     * equals half of the relative heading difference between tug and
+     * aircraft. This provides natural, balanced articulation behavior.
      */
     double towbar_angle = rel_angle / 2.0;
     
