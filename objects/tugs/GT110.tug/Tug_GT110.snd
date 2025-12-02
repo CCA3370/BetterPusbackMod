@@ -1,0 +1,18 @@
+A
+1000
+ACF_SOUNDS
+# Pushback
+
+BEGIN_SOUND_ATTACHMENT
+	EVENT_NAME /ground_equipment/pushback
+	VEH_XYZ 0 0 0
+	EVENT_START_COND sim/graphics/animation/ground_traffic/engine_running == 1
+    EVENT_END_COND sim/graphics/animation/ground_traffic/engine_running == 0
+END_SOUND_ATTACHMENT
+
+BEGIN_SOUND_ATTACHMENT
+	EVENT_NAME /ground_equipment/reverse_beeps_4
+	VEH_XYZ 0 0 0
+	EVENT_START_COND sim/graphics/animation/ground_traffic/engine_rpm_rat < -0.1
+    EVENT_AUTO_END_FROM_START_COND
+END_SOUND_ATTACHMENT
