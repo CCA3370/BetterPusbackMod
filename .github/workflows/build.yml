@@ -8,9 +8,6 @@ on:
 permissions:
   contents: read
 
-env:
-  OPENAL_VERSION: "1.21.0"
-
 jobs:
   build-linux-windows:
     name: Build Linux & Windows
@@ -92,15 +89,9 @@ jobs:
         run: |
           set -e
           chmod +x build_deps
-          # Download and extract openal-soft first, then patch for CMake compatibility
-          OPENAL_URL="https://github.com/kcat/openal-soft/archive/refs/tags/${{ env.OPENAL_VERSION }}.tar.gz"
-          if [ ! -d "openal-soft" ]; then
-            mkdir -p openal-soft
-            curl -fSL "$OPENAL_URL" | tar -xz -C openal-soft --strip-components=1
-          fi
-          # Patch CMakeLists.txt for CMake 3.5+ compatibility
-          find openal-soft -name "CMakeLists.txt" -exec sed -i 's/cmake_minimum_required(VERSION 3\.0\.2)/cmake_minimum_required(VERSION 3.5...3.27)/g' {} \;
-          # Now run build_deps which will skip openal-soft download if directory exists
+          # Patch build_deps to fix CMake compatibility for openal-soft
+          # The script extracts to openal-soft-<version>, so we patch after extraction
+          sed -i 's|cmake -DCMAKE_INSTALL_PREFIX|cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_INSTALL_PREFIX|g' build_deps
           ./build_deps
 
       - name: Build libacfutils library
@@ -253,15 +244,9 @@ jobs:
         run: |
           set -e
           chmod +x build_deps
-          # Download and extract openal-soft first, then patch for CMake compatibility
-          OPENAL_URL="https://github.com/kcat/openal-soft/archive/refs/tags/${{ env.OPENAL_VERSION }}.tar.gz"
-          if [ ! -d "openal-soft" ]; then
-            mkdir -p openal-soft
-            curl -fSL "$OPENAL_URL" | tar -xz -C openal-soft --strip-components=1
-          fi
-          # Patch CMakeLists.txt for CMake 3.5+ compatibility (macOS sed requires different syntax)
-          find openal-soft -name "CMakeLists.txt" -exec sed -i '' 's/cmake_minimum_required(VERSION 3\.0\.2)/cmake_minimum_required(VERSION 3.5...3.27)/g' {} \;
-          # Now run build_deps which will skip openal-soft download if directory exists
+          # Patch build_deps to fix CMake compatibility for openal-soft
+          # The script extracts to openal-soft-<version>, so we patch after extraction
+          sed -i '' 's|cmake -DCMAKE_INSTALL_PREFIX|cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_INSTALL_PREFIX|g' build_deps
           ./build_deps
 
       - name: Build libacfutils library
