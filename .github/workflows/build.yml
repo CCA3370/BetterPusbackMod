@@ -89,9 +89,10 @@ jobs:
         run: |
           set -e
           chmod +x build_deps
-          # Patch build_deps to fix CMake compatibility for openal-soft
-          # The script extracts to openal-soft-<version>, so we patch after extraction
-          sed -i 's|cmake -DCMAKE_INSTALL_PREFIX|cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_INSTALL_PREFIX|g' build_deps
+          # Patch openal-soft/build_openal to fix CMake compatibility
+          # Modern CMake no longer supports cmake_minimum_required < 3.5
+          # The cmake call is in openal-soft/build_openal, not build_deps
+          sed -i 's|cmake -DCMAKE_INSTALL_PREFIX|cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_INSTALL_PREFIX|g' openal-soft/build_openal
           ./build_deps
 
       - name: Build libacfutils library
@@ -244,9 +245,10 @@ jobs:
         run: |
           set -e
           chmod +x build_deps
-          # Patch build_deps to fix CMake compatibility for openal-soft
-          # The script extracts to openal-soft-<version>, so we patch after extraction
-          sed -i '' 's|cmake -DCMAKE_INSTALL_PREFIX|cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_INSTALL_PREFIX|g' build_deps
+          # Patch openal-soft/build_openal to fix CMake compatibility
+          # Modern CMake no longer supports cmake_minimum_required < 3.5
+          # The cmake call is in openal-soft/build_openal, not build_deps
+          sed -i '' 's|cmake -DCMAKE_INSTALL_PREFIX|cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_INSTALL_PREFIX|g' openal-soft/build_openal
           ./build_deps
 
       - name: Build libacfutils library
