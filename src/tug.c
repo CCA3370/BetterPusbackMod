@@ -16,6 +16,7 @@
  * Copyright 2022 Saso Kiselkov. All rights reserved.
  */
 
+#include <dirent.h>
 #include <errno.h>
 #include <string.h>
 #include <stddef.h>
@@ -865,11 +866,7 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
     tug_info_t *ti, *ti_oth;
     void *cookie = NULL;
     size_t cap = 0;
-    int forced_tug_type = cfg_get_forced_tug_type();
-    /* Names must match FORCED_TUG_* constants order in cfg.h */
-    static const char *forced_type_names[FORCED_TUG_COUNT] = {
-        "auto", "grab", "winch", "towbar"
-    };
+    const char *forced_tug_name = cfg_get_forced_tug_name();
 
     if (reason != NULL) {
         ASSERT3P(*reason, ==, NULL);
@@ -877,14 +874,36 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
                                     "tirrad: %.3f gear_type: %u icao: %s",
                       mtow, ng_len, tirrad, gear_type,
                       arpt != NULL ? arpt : "(nil)");
-        if (forced_tug_type != FORCED_TUG_AUTO) {
-            append_format(reason, &cap, " forced_type: %s",
-                          forced_type_names[forced_tug_type]);
+        if (forced_tug_name != NULL) {
+            append_format(reason, &cap, " forced_tug: %s",
+                          forced_tug_name);
         }
         append_format(reason, &cap, "\n");
     }
 
     tugdir = mkpathname(bp_xpdir, bp_plugindir, "objects", "tugs", NULL);
+
+    /*
+     * If a specific tug is forced by name, load it directly and skip
+     * all parameter filtering.
+     */
+    if (forced_tug_name != NULL) {
+        char *tugpath = mkpathname(tugdir, forced_tug_name, NULL);
+        ti = tug_info_read(tugpath, forced_tug_name, arpt, airline);
+        free(tugpath);
+        free(tugdir);
+        
+        if (ti != NULL && reason != NULL) {
+            append_format(reason, &cap, "%s: FORCED - bypassing parameter checks\n",
+                          forced_tug_name);
+        }
+        if (ti == NULL && reason != NULL) {
+            append_format(reason, &cap, "%s: FORCED but failed to load\n",
+                          forced_tug_name);
+        }
+        return (ti);
+    }
+
     dirp = opendir(tugdir);
     if (dirp == NULL) {
 #if    !IBM    /* On Windows libacfutils already prints the error */
@@ -901,7 +920,6 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
     while ((de = readdir(dirp)) != NULL) {
         const char *dot;
         char *tugpath;
-        bool_t lift_type_matches = B_TRUE;
 
         if ((dot = strrchr(de->d_name, '.')) == NULL ||
             strcmp(&dot[1], "tug") != 0)
@@ -917,17 +935,6 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
         }
 
         /*
-         * Check if forced tug type is enabled and matches
-         */
-        if (ti != NULL && forced_tug_type != FORCED_TUG_AUTO) {
-            lift_type_matches = (
-                (forced_tug_type == FORCED_TUG_GRAB && ti->lift_type == LIFT_GRAB) ||
-                (forced_tug_type == FORCED_TUG_WINCH && ti->lift_type == LIFT_WINCH) ||
-                (forced_tug_type == FORCED_TUG_TOWBAR && ti->lift_type == LIFT_TOWBAR)
-            );
-        }
-
-        /*
          * A tug matches our selection criteria iff:
          * 1) it could be read AND
          * 2) its min_mtow is <= our MTOW
@@ -936,7 +943,6 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
          * 5) our nose gear radius matches its min and max tire radius
          * 6) if the caller provided an airport identifier and the
          *	tug is airport-specific, then the airport ID matches
-         * 7) if a tug type is forced, the lift_type must match
          */
         if (ti != NULL && reason != NULL) {
             append_format(reason, &cap, "%s: min_mtow: %.0f "
@@ -953,8 +959,7 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
             ti->min_tirrad <= tirrad && ti->max_tirrad >= tirrad &&
             (arpt == NULL || ti->arpt == NULL ||
              strcmp(arpt, ti->arpt) == 0) &&
-            ((1 << gear_type) & ti->gear_compat) != 0 &&
-            lift_type_matches) {
+            ((1 << gear_type) & ti->gear_compat) != 0) {
             if (reason != NULL)
                 append_format(reason, &cap, "ACCEPT\n");
             avl_add(&tis, ti);
@@ -963,6 +968,7 @@ tug_info_select(double mtow, double ng_len, double tirrad, unsigned gear_type,
         }
         free(tugpath);
     }
+    closedir(dirp);
     free(tugdir);
 
     ti = avl_first(&tis);
@@ -1939,4 +1945,128 @@ tug_set_towbar_heading(double heading_deg) {
 void
 tug_set_towbar_pitch(double pitch_deg) {
     anim[ANIM_TOWBAR_PITCH].value = pitch_deg;
+}
+
+/*
+ * Get the lift type of a tug by reading its info.cfg file.
+ * Returns -1 if the tug cannot be read.
+ */
+static int
+tug_get_lift_type(const char *tugdir) {
+    char *cfgfilename = mkpathname(tugdir, "info.cfg", NULL);
+    FILE *fp = fopen(cfgfilename, "r");
+    int lift_type = -1;  /* default: unknown/error */
+    char option[256];
+
+    if (fp == NULL) {
+        free(cfgfilename);
+        return (-1);
+    }
+
+    while (!feof(fp)) {
+        if (fscanf(fp, "%255s", option) != 1)
+            continue;
+        if (option[0] == '#') {
+            while (fgetc(fp) != '\n' && !feof(fp));
+            continue;
+        }
+
+        if (strcmp(option, "lift_type") == 0) {
+            char type[16];
+            if (fscanf(fp, "%15s", type) == 1) {
+                if (strcmp(type, "grab") == 0) {
+                    lift_type = LIFT_GRAB;
+                } else if (strcmp(type, "winch") == 0) {
+                    lift_type = LIFT_WINCH;
+                } else if (strcmp(type, "towbar") == 0) {
+                    lift_type = LIFT_TOWBAR;
+                }
+            }
+            break;
+        }
+    }
+
+    fclose(fp);
+    free(cfgfilename);
+    
+    /* Default to LIFT_GRAB if not specified */
+    return (lift_type < 0 ? LIFT_GRAB : lift_type);
+}
+
+/*
+ * Get list of available tugs for UI display.
+ * Returns an array of tug_list_item_t, with count set to the number of items.
+ * Caller must free the list using cfg_free_tug_list().
+ */
+tug_list_item_t *
+cfg_get_tug_list(int *count) {
+    char *tugdir;
+    DIR *dirp;
+    struct dirent *de;
+    tug_list_item_t *list = NULL;
+    int num_tugs = 0;
+    int capacity = 0;
+    static const char *lift_type_names[] = {"Grab", "Winch", "Towbar"};
+
+    *count = 0;
+
+    tugdir = mkpathname(bp_xpdir, bp_plugindir, "objects", "tugs", NULL);
+    dirp = opendir(tugdir);
+    if (dirp == NULL) {
+        free(tugdir);
+        return (NULL);
+    }
+
+    while ((de = readdir(dirp)) != NULL) {
+        const char *dot;
+        char *tugpath;
+        int lift_type;
+        size_t display_len;
+
+        if ((dot = strrchr(de->d_name, '.')) == NULL ||
+            strcmp(&dot[1], "tug") != 0)
+            continue;
+
+        tugpath = mkpathname(tugdir, de->d_name, NULL);
+        lift_type = tug_get_lift_type(tugpath);
+        free(tugpath);
+
+        if (lift_type < 0)
+            continue;
+
+        /* Grow array if needed */
+        if (num_tugs >= capacity) {
+            capacity = (capacity == 0) ? 8 : capacity * 2;
+            list = safe_realloc(list, capacity * sizeof(tug_list_item_t));
+        }
+
+        list[num_tugs].tug_name = strdup(de->d_name);
+        list[num_tugs].lift_type = lift_type;
+
+        /* Build display name: "TugName (Type)" */
+        display_len = strlen(de->d_name) + strlen(lift_type_names[lift_type]) + 4;
+        list[num_tugs].display_name = safe_malloc(display_len);
+        snprintf(list[num_tugs].display_name, display_len, "%s (%s)",
+                 de->d_name, lift_type_names[lift_type]);
+
+        num_tugs++;
+    }
+
+    closedir(dirp);
+    free(tugdir);
+
+    *count = num_tugs;
+    return (list);
+}
+
+/*
+ * Free a tug list allocated by cfg_get_tug_list().
+ */
+void
+cfg_free_tug_list(tug_list_item_t *list, int count) {
+    for (int i = 0; i < count; i++) {
+        free(list[i].tug_name);
+        free(list[i].display_name);
+    }
+    free(list);
 }

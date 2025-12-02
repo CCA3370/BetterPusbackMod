@@ -91,20 +91,25 @@ void initMonitorOrigin(void);
 void cfg_cleanup(void);
 
 /*
- * Force tug type constants - these correspond to lift_t enum in tug.h:
- * LIFT_GRAB = 0, LIFT_WINCH = 1, LIFT_TOWBAR = 2
- * FORCED_TUG_AUTO means no forcing (use automatic selection)
- * The other values are lift_t + 1 to distinguish from auto (0)
+ * Tug info structure for UI display
  */
-enum {
-    FORCED_TUG_AUTO = 0,
-    FORCED_TUG_GRAB = 1,     /* corresponds to LIFT_GRAB (0) + 1 */
-    FORCED_TUG_WINCH = 2,    /* corresponds to LIFT_WINCH (1) + 1 */
-    FORCED_TUG_TOWBAR = 3,   /* corresponds to LIFT_TOWBAR (2) + 1 */
-    FORCED_TUG_COUNT = 4     /* total number of options including auto */
-};
+typedef struct {
+    char *tug_name;     /* tug directory name, e.g. "GT110.tug" */
+    char *display_name; /* display name with type, e.g. "GT110.tug (Towbar)" */
+    int lift_type;      /* 0=Grab, 1=Winch, 2=Towbar */
+} tug_list_item_t;
 
-int cfg_get_forced_tug_type(void);
+/*
+ * Get list of available tugs for UI. Caller must free the returned list
+ * using cfg_free_tug_list().
+ */
+tug_list_item_t *cfg_get_tug_list(int *count);
+void cfg_free_tug_list(tug_list_item_t *list, int count);
+
+/*
+ * Get the forced tug name. Returns NULL if no tug is forced.
+ */
+const char *cfg_get_forced_tug_name(void);
 
 #ifdef    __cplusplus
 }
