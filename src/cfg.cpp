@@ -182,17 +182,15 @@ const char *eye_tracker_tooltip =
   "Otherwise this setting must be set to : None.";
 
 const char *force_tug_type_tooltip =
-    "When enabled, forces the use of a specific tug type,\n"
+    "When enabled, forces the use of a specific tug,\n"
     "ignoring the automatic selection based on aircraft specifications.\n\n"
-    "Note: If no matching tug of the selected type is available,\n"
-    "pushback will fail. Use with caution.";
+    "The selected tug will be used regardless of aircraft parameters.";
 
 const char *forced_tug_type_tooltip =
-    "Select which tug type to force:\n\n"
-    "Automatic: Uses the default selection logic based on aircraft specs.\n"
-    "Grab (Cradle): Tug grabs and lifts the nosewheel using arms.\n"
-    "Winch (Platform): Winches nosewheel onto a platform and lifts.\n"
-    "Towbar: Uses a rigid towbar connection without lifting.";
+    "Select which tug to force:\n\n"
+    "When a tug is selected, it will be used directly\n"
+    "without checking aircraft compatibility.\n"
+    "The type (Grab/Winch/Towbar) is shown in parentheses.";
 
 typedef struct {
   const char *string;
@@ -293,7 +291,6 @@ private:
   bool_t tug_starts_next_plane;
   bool_t tug_auto_start;
   bool_t force_tug_type_enabled;
-  int forced_tug_type;
   int monitor_id;
   int for_credit;
   int magic_squares_height;
@@ -446,15 +443,23 @@ void SettingsWindow::LoadConfig(void) {
   doorscheck_comboList_init(&doors_check_list);
   doors_check_list.selected = doors_check;
 
-  // Force tug type settings
+  // Force tug settings
   force_tug_type_enabled = B_FALSE;
   (void)conf_get_b(bp_conf, "force_tug_type_enabled", &force_tug_type_enabled);
 
-  forced_tug_type = 0;  // 0 = Automatic
-  (void)conf_get_i(bp_conf, "forced_tug_type", &forced_tug_type);
-
   tugtype_comboList_init(&tug_type_list);
-  tug_type_list.selected = forced_tug_type;
+  
+  // Find the selected tug by name
+  tug_type_list.selected = 0;  // Default to first tug
+  const char *forced_tug_name = NULL;
+  if (conf_get_str(bp_conf, "forced_tug_name", &forced_tug_name)) {
+    for (int i = 0; i < tug_type_list.list_size; i++) {
+      if (strcmp(forced_tug_name, tug_type_list.combo_list[i].value) == 0) {
+        tug_type_list.selected = i;
+        break;
+      }
+    }
+  }
 }
 
 void SettingsWindow::plugin_comboList_init(comboList_t *list,  bool_t only_aircraft) {
@@ -535,23 +540,31 @@ void SettingsWindow::doorscheck_comboList_init(comboList_t *list) {
 }
 
 void SettingsWindow::tugtype_comboList_init(comboList_t *list) {
-  // Options for tug type selection
-  // Order must match FORCED_TUG_* constants in cfg.h
-  list->combo_list = (comboList_t_ *)safe_calloc(FORCED_TUG_COUNT, sizeof(comboList_t_));
-  list->list_size = FORCED_TUG_COUNT;
-
-  static const char* tug_type_strings[FORCED_TUG_COUNT] = {
-    _("Automatic"),
-    _("Grab (Cradle)"),
-    _("Winch (Platform)"),
-    _("Towbar")
-  };
-
-  for (int i = 0; i < FORCED_TUG_COUNT; ++i) {
-    list->combo_list[i].string = strdup(tug_type_strings[i]);
-    list->combo_list[i].use_chinese = B_FALSE;
-    list->combo_list[i].value = strdup("");
+  // Get list of available tugs from the tug system
+  int tug_count = 0;
+  tug_list_item_t *tug_list = cfg_get_tug_list(&tug_count);
+  
+  if (tug_list == NULL || tug_count == 0) {
+    // No tugs available, create empty list
+    list->combo_list = (comboList_t_ *)safe_calloc(1, sizeof(comboList_t_));
+    list->list_size = 1;
+    list->combo_list[0].string = strdup(_("No tugs available"));
+    list->combo_list[0].use_chinese = B_FALSE;
+    list->combo_list[0].value = strdup("");
+    return;
   }
+
+  // Create list with all available tugs
+  list->combo_list = (comboList_t_ *)safe_calloc(tug_count, sizeof(comboList_t_));
+  list->list_size = tug_count;
+
+  for (int i = 0; i < tug_count; ++i) {
+    list->combo_list[i].string = strdup(tug_list[i].display_name);
+    list->combo_list[i].use_chinese = B_FALSE;
+    list->combo_list[i].value = strdup(tug_list[i].tug_name);
+  }
+
+  cfg_free_tug_list(tug_list, tug_count);
 }
 
 void SettingsWindow::comboList_free(comboList_t *list) {
@@ -845,35 +858,32 @@ void SettingsWindow::buildInterface() {
 
     ImGui::TableNextRow();
     ImGui::TableNextColumn();
-    ImGui::Text("%s", _("Force tug type selection"));
+    ImGui::Text("%s", _("Force tug selection"));
     Tooltip(_(force_tug_type_tooltip));
 
     ImGui::TableNextColumn();
     if (ImGui::Checkbox("##force_tug_type_enabled",
                         (bool *)&force_tug_type_enabled)) {
       (void)conf_set_b(bp_conf, "force_tug_type_enabled", force_tug_type_enabled);
-      // If disabling, reset to automatic
-      if (!force_tug_type_enabled) {
-        forced_tug_type = 0;
-        tug_type_list.selected = 0;
-        (void)conf_set_i(bp_conf, "forced_tug_type", forced_tug_type);
-      }
     }
 
-    // Show tug type selector only when force is enabled
+    // Show tug selector only when force is enabled
     if (!force_tug_type_enabled) {
       ImGui::BeginDisabled();
     }
     ImGui::TableNextRow();
     ImGui::TableNextColumn();
-    ImGui::Text("%s", _("Forced tug type"));
+    ImGui::Text("%s", _("Forced tug"));
     Tooltip(_(forced_tug_type_tooltip));
 
     ImGui::TableNextColumn();
     ImGui::SetNextItemWidth(combowithWidth);
     if (comboList(&tug_type_list)) {
-      forced_tug_type = tug_type_list.selected;
-      (void)conf_set_i(bp_conf, "forced_tug_type", forced_tug_type);
+      // Save the selected tug name
+      if (tug_type_list.selected < tug_type_list.list_size) {
+        conf_set_str(bp_conf, "forced_tug_name",
+                     tug_type_list.combo_list[tug_type_list.selected].value);
+      }
     }
     if (!force_tug_type_enabled) {
       ImGui::EndDisabled();
@@ -1553,15 +1563,22 @@ void cfg_cleanup() {
   XPImgWindowCleanup();
 }
 
-int cfg_get_forced_tug_type(void) {
+const char *cfg_get_forced_tug_name(void) {
+  static const char *forced_name = NULL;
   bool_t force_enabled = B_FALSE;
-  int forced_type = FORCED_TUG_AUTO;
 
   (void)conf_get_b(bp_conf, "force_tug_type_enabled", &force_enabled);
   if (!force_enabled) {
-    return FORCED_TUG_AUTO;
+    return NULL;
   }
 
-  (void)conf_get_i(bp_conf, "forced_tug_type", &forced_type);
-  return forced_type;
+  forced_name = NULL;
+  (void)conf_get_str(bp_conf, "forced_tug_name", &forced_name);
+  
+  /* Return NULL if the name is empty or not set */
+  if (forced_name == NULL || *forced_name == '\0') {
+    return NULL;
+  }
+  
+  return forced_name;
 }
