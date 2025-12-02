@@ -259,6 +259,12 @@ void tug_set_lift_in_transit(bool_t flag);
 /* Check if tug is a towbar-type tug */
 bool_t tug_is_towbar(const tug_t *tug);
 
+/* Set towbar heading angle in degrees (for towbar-type tugs) */
+void tug_set_towbar_heading(double heading_deg);
+
+/* Set towbar pitch angle in degrees (for towbar-type tugs) */
+void tug_set_towbar_pitch(double pitch_deg);
+
 #ifdef    __cplusplus
 }
 #endif
