@@ -1162,11 +1162,16 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
     vect2_t hitch_pos = vect2_add(nw_pos, vect2_scmul(towbar_dir, towbar_len));
     
     /*
-     * Tug origin is at -hitch_z from hitch along tug's direction.
-     * Since hitch_z is negative, -hitch_z is positive, so tug origin
-     * is in tug's forward direction from hitch (toward aircraft).
+     * Tug origin is at |hitch_z| distance from hitch AWAY from the aircraft.
+     * Since hitch_z is negative (hitch is behind tug origin in tug coords),
+     * and tug_dir points TOWARD the aircraft (tug faces aircraft), we need
+     * to move in the OPPOSITE direction of tug_dir to place the tug origin
+     * further from the aircraft than the hitch.
+     * 
+     * tug_origin = hitch_pos - tug_dir * |hitch_z|
+     *            = hitch_pos + tug_dir * hitch_z  (since hitch_z is negative)
      */
-    tug_pos = vect2_add(hitch_pos, vect2_scmul(tug_dir, -hitch_z));
+    tug_pos = vect2_add(hitch_pos, vect2_scmul(tug_dir, hitch_z));
     
     tug_set_pos(bp_ls.tug, tug_pos, tug_hdg, tug_spd);
 
