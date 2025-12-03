@@ -94,6 +94,15 @@
 #define    TUG_DRIVE_AWAY_DIST    80    /* meters */
 #define    MAX_DRIVING_AWAY_DELAY    30    /* seconds */
 
+/*
+ * Towbar tug physics tuning constants.
+ * These control how aggressively the tug steers and how the aircraft heading
+ * is corrected during pushback. Lower values = smoother but slower response.
+ */
+#define    TOWBAR_STEER_CORR_FACTOR    0.5    /* steering correction multiplier */
+#define    TOWBAR_HDG_DAMP_FACTOR      0.1    /* heading change dampening */
+#define    TOWBAR_HDG_AMP_FACTOR       3      /* heading correction amplification */
+
 #define    TUG_APPCH_LONG_DIST    (6 * bp_ls.tug->veh.wheelbase)
 #define    TUG_APPCH_SHORT_DIST    (2 * bp_ls.tug->veh.wheelbase)
 
@@ -997,7 +1006,7 @@ turn_nosewheel_towbar(double req_steer) {
          * - Steering is reversed
          */
         int dir_mult = (bp_ls.tug->pos.spd >= 0 ? 1 : -1);
-        double tug_steer = dir_mult * 0.5 * d_steer;
+        double tug_steer = dir_mult * TOWBAR_STEER_CORR_FACTOR * d_steer;
         double speed;
 
         tug_steer = MIN(MAX(tug_steer, -bp_ls.tug->veh.max_steer),
@@ -1023,14 +1032,15 @@ turn_nosewheel_towbar(double req_steer) {
      * We use the aircraft wheelbase for this calculation.
      */
     double effective_dist = towbar_len + hitch_z;
-    d_hdg = tug_turn_rate * bp.d_t * (effective_dist / bp.veh.wheelbase) * 0.1;
+    d_hdg = tug_turn_rate * bp.d_t * (effective_dist / bp.veh.wheelbase) *
+            TOWBAR_HDG_DAMP_FACTOR;
     
     /*
      * Apply a small heading correction. The factor is intentionally low
      * to prevent oscillation. Most of the heading change should come from
      * the physics of the towbar pulling/pushing the nosewheel.
      */
-    reorient_aircraft(0, 0, 3 * d_hdg);
+    reorient_aircraft(0, 0, TOWBAR_HDG_AMP_FACTOR * d_hdg);
 
     /*
      * Debug logging for towbar steering
@@ -1045,7 +1055,7 @@ turn_nosewheel_towbar(double req_steer) {
             logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Tug turn: radius=%.2f rate=%.2f°/s",
                    tug_turn_r, tug_turn_rate);
             logMsg(BP_INFO_LOG "[TOWBAR DEBUG] d_steer=%.2f° d_hdg=%.3f°",
-                   d_steer, 3 * d_hdg);
+                   d_steer, TOWBAR_HDG_AMP_FACTOR * d_hdg);
         }
     }
 }
