@@ -1958,13 +1958,33 @@ draw_tugs(void) {
         return;
     }
 
-    if (list_head(&bp_ls.tug->segs) == NULL &&
-        bp.step >= PB_STEP_GRABBING &&
-        bp.step <= PB_STEP_UNGRABBING) {
-        vect2_t my_pos = VECT2(dr_getf(&drs.local_x),
-                               -dr_getf(&drs.local_z));
-        double my_hdg = dr_getf(&drs.hdg);
-        tug_pos_update(my_pos, my_hdg, B_TRUE);
+    /*
+     * Update tug position for drawing when the tug has finished driving
+     * and is connected to the aircraft.
+     *
+     * For towbar tugs, only update position after connection is complete
+     * (PB_STEP_CONNECTED and beyond). During GRABBING and LIFTING steps,
+     * the towbar tug should remain at its approach position.
+     */
+    if (list_head(&bp_ls.tug->segs) == NULL) {
+        bool_t should_update = B_FALSE;
+        
+        if (tug_is_towbar(bp_ls.tug)) {
+            /* Towbar tugs: only update after connection is complete */
+            should_update = (bp.step >= PB_STEP_CONNECTED &&
+                             bp.step <= PB_STEP_UNGRABBING);
+        } else {
+            /* Cradle/winch tugs: update during entire grabbing phase */
+            should_update = (bp.step >= PB_STEP_GRABBING &&
+                             bp.step <= PB_STEP_UNGRABBING);
+        }
+        
+        if (should_update) {
+            vect2_t my_pos = VECT2(dr_getf(&drs.local_x),
+                                   -dr_getf(&drs.local_z));
+            double my_hdg = dr_getf(&drs.hdg);
+            tug_pos_update(my_pos, my_hdg, B_TRUE);
+        }
     }
 
     tug_draw(bp_ls.tug, bp.cur_t);
@@ -4075,10 +4095,32 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon) {
                 bp.step == PB_STEP_MOVING_AWAY);
         tug_anim(bp_ls.tug, bp.d_t, bp.cur_t);
 
-        if (list_head(&bp_ls.tug->segs) == NULL &&
-            bp.step >= PB_STEP_GRABBING &&
-            bp.step <= PB_STEP_UNGRABBING)
-            tug_pos_update(bp.cur_pos.pos, bp.cur_pos.hdg, B_FALSE);
+        /*
+         * Update tug position when the tug has finished driving and
+         * is connected to the aircraft (or in the process of connecting
+         * for cradle/winch tugs).
+         *
+         * For towbar tugs, only update position after connection is
+         * complete (PB_STEP_CONNECTED and beyond). During GRABBING and
+         * LIFTING steps, the towbar tug should remain at its approach
+         * position, not be snapped to the nosewheel geometry.
+         */
+        if (list_head(&bp_ls.tug->segs) == NULL) {
+            bool_t should_update = B_FALSE;
+            
+            if (tug_is_towbar(bp_ls.tug)) {
+                /* Towbar tugs: only update after connection is complete */
+                should_update = (bp.step >= PB_STEP_CONNECTED &&
+                                 bp.step <= PB_STEP_UNGRABBING);
+            } else {
+                /* Cradle/winch tugs: update during entire grabbing phase */
+                should_update = (bp.step >= PB_STEP_GRABBING &&
+                                 bp.step <= PB_STEP_UNGRABBING);
+            }
+            
+            if (should_update)
+                tug_pos_update(bp.cur_pos.pos, bp.cur_pos.hdg, B_FALSE);
+        }
     }
 
     if (!slave_mode) {
