@@ -89,6 +89,12 @@
 /* Maximum articulation angle at hitch (degrees) */
 #define TOWBAR_MAX_HITCH_ANGLE      75.0
 
+/* Right angle in degrees - used for turn radius calculations */
+#define RIGHT_ANGLE_DEG             90.0
+
+/* Threshold for considering turn radius as "large" (effectively straight) */
+#define LARGE_RADIUS_THRESHOLD      1e3
+
 /* Connection tolerance for validation (meters) */
 #define TOWBAR_CONNECTION_TOLERANCE 0.5
 
@@ -233,21 +239,23 @@ towbar_calculate_angles(towbar_state_t *state,
     double nw_steer = towbar_calculate_nw_steer(acf_hdg, tug_hdg);
     
     /*
-     * The hitch angle and nosewheel angle are related through the
-     * geometry of the rigid towbar. For a simplified model where both
-     * articulate equally (symmetric), each hinge takes half the total
-     * angular difference.
+     * The hitch angle and connection angle represent articulation at each
+     * hinge point of the rigid towbar.
      *
-     * Total angular difference = tug_hdg - (acf_hdg + 180)
-     * Hitch angle = Connection angle = Total / 2
+     * For a symmetric articulation model, the total angular difference
+     * between the tug and aircraft is split equally between both hinges:
+     *   Total angle = nw_steer = tug_hdg - (acf_hdg + 180)
+     *   Hitch angle = Connection angle = nw_steer / 2
      *
-     * However, in practice, the nosewheel has steering limits that may
-     * be different from the hitch limits. We use the nosewheel angle
-     * directly for the connection, and calculate the hitch angle based
-     * on the remaining articulation needed.
+     * This symmetric split provides natural, balanced articulation behavior.
+     * Both values are the same because the towbar is modeled as rotating
+     * equally at both ends when the tug-aircraft angle changes. In a more
+     * advanced model, these could differ based on steering constraints or
+     * towbar flexibility, but the symmetric model works well in practice.
      */
-    double hitch_angle = nw_steer / 2.0;
-    double connection_angle = nw_steer / 2.0;
+    double articulation_per_hinge = nw_steer / 2.0;
+    double hitch_angle = articulation_per_hinge;
+    double connection_angle = articulation_per_hinge;
     
     /* Update state */
     state->hitch_angle = hitch_angle;
@@ -461,13 +469,13 @@ towbar_calculate_physics(towbar_state_t *state,
             tug_turn_radius = -tug_turn_radius;
     } else {
         /* Normal steering - calculate turn radius */
-        tug_turn_radius = tan(DEG2RAD(90 - fabs(input->tug_cur_steer))) *
+        tug_turn_radius = tan(DEG2RAD(RIGHT_ANGLE_DEG - fabs(input->tug_cur_steer))) *
                           input->tug_wheelbase;
         if (input->tug_cur_steer < 0)
             tug_turn_radius = -tug_turn_radius;
     }
     
-    if (fabs(tug_turn_radius) < 1e3 && fabs(input->tug_speed) > TOWBAR_MIN_SPEED) {
+    if (fabs(tug_turn_radius) < LARGE_RADIUS_THRESHOLD && fabs(input->tug_speed) > TOWBAR_MIN_SPEED) {
         double d_hdg = RAD2DEG(input->tug_speed / tug_turn_radius) * input->d_t;
         new_tug_hdg = normalize_heading(input->tug_hdg + d_hdg);
         
@@ -510,7 +518,14 @@ towbar_calculate_physics(towbar_state_t *state,
      * STEP 8: Calculate animation values
      */
     double towbar_heading = hitch_angle;
-    double towbar_pitch = 0;  /* Vertical angle - would need height data */
+    /*
+     * TODO: Towbar pitch calculation requires vertical geometry data
+     * (aircraft nosewheel height, tug hitch height, terrain slope, etc.)
+     * For now, keep at 0 which works for level ground. A proper
+     * implementation would calculate the vertical angle between the
+     * hitch and nosewheel connection points.
+     */
+    double towbar_pitch = 0;
     
     /*
      * STEP 9: Update state for next frame
