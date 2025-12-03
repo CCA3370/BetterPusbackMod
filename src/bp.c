@@ -1946,6 +1946,33 @@ bp_init(void) {
     return (B_FALSE);
 }
 
+/*
+ * Determines whether the tug position should be updated to track
+ * the aircraft nosewheel position.
+ *
+ * For towbar tugs, only update position after connection is complete
+ * (PB_STEP_CONNECTED and beyond). During GRABBING and LIFTING steps,
+ * the towbar tug should remain at its approach position.
+ *
+ * For cradle/winch tugs, update during the entire grabbing phase.
+ */
+static bool_t
+should_update_tug_position(void) {
+    /* Only update if tug has no more driving segments */
+    if (list_head(&bp_ls.tug->segs) != NULL)
+        return (B_FALSE);
+    
+    if (tug_is_towbar(bp_ls.tug)) {
+        /* Towbar tugs: only update after connection is complete */
+        return (bp.step >= PB_STEP_CONNECTED &&
+                bp.step <= PB_STEP_UNGRABBING);
+    } else {
+        /* Cradle/winch tugs: update during entire grabbing phase */
+        return (bp.step >= PB_STEP_GRABBING &&
+                bp.step <= PB_STEP_UNGRABBING);
+    }
+}
+
 static void
 draw_tugs(void) {
     if (bp_ls.tug == NULL) {
@@ -1958,9 +1985,7 @@ draw_tugs(void) {
         return;
     }
 
-    if (list_head(&bp_ls.tug->segs) == NULL &&
-        bp.step >= PB_STEP_GRABBING &&
-        bp.step <= PB_STEP_UNGRABBING) {
+    if (should_update_tug_position()) {
         vect2_t my_pos = VECT2(dr_getf(&drs.local_x),
                                -dr_getf(&drs.local_z));
         double my_hdg = dr_getf(&drs.hdg);
@@ -3347,6 +3372,28 @@ static void
 pb_step_closing_cradle(void) {
     double d_t = bp.cur_t - bp.step_start_t;
 
+    /*
+     * For towbar tugs, skip the cradle closing animation since towbar
+     * tugs don't have a cradle. The towbar was simply disconnected.
+     */
+    if (tug_is_towbar(bp_ls.tug)) {
+        /*
+         * Brief delay after disconnection, then proceed to drive away.
+         */
+        if (d_t >= STATE_TRANS_DELAY) {
+            /* determine which direction we'll drive away */
+            bool_t right = tug_clear_is_right();
+            msg_play(right ? MSG_DONE_RIGHT : MSG_DONE_LEFT);
+            tug_set_hazard_lights_on(B_FALSE);
+
+            bp.step++;
+            bp.step_start_t = bp.cur_t;
+            bp.last_voice_t = bp.cur_t;
+        }
+        return;
+    }
+
+    /* Original cradle closing animation for grab/winch tugs */
     tug_set_lift_in_transit(B_TRUE);
     tug_set_tire_sense_pos(bp_ls.tug, 1 - d_t / PB_CRADLE_DELAY);
     tug_set_lift_pos(d_t / PB_CRADLE_DELAY);
@@ -4053,9 +4100,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon) {
                 bp.step == PB_STEP_MOVING_AWAY);
         tug_anim(bp_ls.tug, bp.d_t, bp.cur_t);
 
-        if (list_head(&bp_ls.tug->segs) == NULL &&
-            bp.step >= PB_STEP_GRABBING &&
-            bp.step <= PB_STEP_UNGRABBING)
+        if (should_update_tug_position())
             tug_pos_update(bp.cur_pos.pos, bp.cur_pos.hdg, B_FALSE);
     }
 
@@ -4178,27 +4223,54 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon) {
             bp_hint_status_str = _("Waiting for doors/GPU/ASU closed/disconnected");
             if (acf_doors_closed(B_TRUE)) {
                 disable_replanning();
-                bp_hint_status_str = _("Opening the cradle");
                 double d_t = bp.cur_t - bp.step_start_t;
 
-                tug_set_lift_in_transit(B_TRUE);
-                tug_set_lift_pos(1 - d_t / PB_CRADLE_DELAY);
-                tug_set_tire_sense_pos(bp_ls.tug, d_t / PB_CRADLE_DELAY);
-                if (d_t >= PB_CRADLE_DELAY) {
-                    tug_set_lift_in_transit(B_FALSE);
-                    tug_set_cradle_beeper_on(bp_ls.tug, B_FALSE);
-                    prop_single_adjust();
-                }
-                if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
-                    if (!bp.reconnect) {
-                        if (pbrake_is_set())
-                            msg_play(MSG_RDY2CONN_NOPARK);
-                        else
-                            msg_play(MSG_RDY2CONN);
-                        bp.last_voice_t = bp.cur_t;
+                /*
+                 * For towbar tugs, skip cradle opening animations since
+                 * towbar tugs don't have a cradle. They use a rigid towbar
+                 * connection to the aircraft nosewheel instead.
+                 */
+                if (tug_is_towbar(bp_ls.tug)) {
+                    bp_hint_status_str = _("Preparing towbar connection");
+                    /*
+                     * Just a brief transition delay for towbar tugs.
+                     * No cradle animations needed.
+                     */
+                    if (d_t >= STATE_TRANS_DELAY) {
+                        prop_single_adjust();
+                        if (!bp.reconnect) {
+                            if (pbrake_is_set())
+                                msg_play(MSG_RDY2CONN_NOPARK);
+                            else
+                                msg_play(MSG_RDY2CONN);
+                            bp.last_voice_t = bp.cur_t;
+                        }
+                        bp.step++;
+                        bp.step_start_t = bp.cur_t;
                     }
-                    bp.step++;
-                    bp.step_start_t = bp.cur_t;
+                } else {
+                    /* Cradle/winch tug: run cradle opening animation */
+                    bp_hint_status_str = _("Opening the cradle");
+
+                    tug_set_lift_in_transit(B_TRUE);
+                    tug_set_lift_pos(1 - d_t / PB_CRADLE_DELAY);
+                    tug_set_tire_sense_pos(bp_ls.tug, d_t / PB_CRADLE_DELAY);
+                    if (d_t >= PB_CRADLE_DELAY) {
+                        tug_set_lift_in_transit(B_FALSE);
+                        tug_set_cradle_beeper_on(bp_ls.tug, B_FALSE);
+                        prop_single_adjust();
+                    }
+                    if (d_t >= PB_CRADLE_DELAY + STATE_TRANS_DELAY) {
+                        if (!bp.reconnect) {
+                            if (pbrake_is_set())
+                                msg_play(MSG_RDY2CONN_NOPARK);
+                            else
+                                msg_play(MSG_RDY2CONN);
+                            bp.last_voice_t = bp.cur_t;
+                        }
+                        bp.step++;
+                        bp.step_start_t = bp.cur_t;
+                    }
                 }
             }
             else {
@@ -4215,11 +4287,19 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon) {
             pb_step_driving_up_connect();
             break;
         case PB_STEP_GRABBING:
-            bp_hint_status_str = _("Grabbing the aircraft");
+            if (tug_is_towbar(bp_ls.tug)) {
+                bp_hint_status_str = _("Connecting towbar");
+            } else {
+                bp_hint_status_str = _("Grabbing the aircraft");
+            }
             pb_step_grab();
             break;
         case PB_STEP_LIFTING:
-            bp_hint_status_str = _("Lifting the aircraft");
+            if (tug_is_towbar(bp_ls.tug)) {
+                bp_hint_status_str = _("Securing towbar connection");
+            } else {
+                bp_hint_status_str = _("Lifting the aircraft");
+            }
             pb_step_lift();
             break;
         case PB_STEP_CONNECTED:
@@ -4271,11 +4351,19 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon) {
             pb_step_stopped();
             break;
         case PB_STEP_LOWERING:
-            bp_hint_status_str = _("Lowering the nose");
+            if (tug_is_towbar(bp_ls.tug)) {
+                bp_hint_status_str = _("Preparing to disconnect");
+            } else {
+                bp_hint_status_str = _("Lowering the nose");
+            }
             pb_step_lowering();
             break;
         case PB_STEP_UNGRABBING:
-            bp_hint_status_str = _("Ungrabbing the nose");
+            if (tug_is_towbar(bp_ls.tug)) {
+                bp_hint_status_str = _("Disconnecting towbar");
+            } else {
+                bp_hint_status_str = _("Ungrabbing the nose");
+            }
             pb_step_ungrabbing();
             break;
         case PB_STEP_WAITING4OK2DISCO:
@@ -4317,14 +4405,24 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon) {
                 }
             }
             if (tug_is_stopped(bp_ls.tug)) {
-                tug_set_cradle_beeper_on(bp_ls.tug, B_TRUE);
+                /*
+                 * For towbar tugs, skip the cradle beeper since there's
+                 * no cradle. Towbar tugs just disconnected their towbar.
+                 */
+                if (!tug_is_towbar(bp_ls.tug)) {
+                    tug_set_cradle_beeper_on(bp_ls.tug, B_TRUE);
+                }
                 bp.step++;
                 bp.step_start_t = bp.cur_t;
                 bp.anim.nosewheel_rot_spd = 0;
             }
             break;
         case PB_STEP_CLOSING_CRADLE:
-            bp_hint_status_str = _("Closing the cradle");
+            if (tug_is_towbar(bp_ls.tug)) {
+                bp_hint_status_str = _("Retracting towbar");
+            } else {
+                bp_hint_status_str = _("Closing the cradle");
+            }
             pb_step_closing_cradle();
             break;
         case PB_STEP_STARTING2CLEAR:
