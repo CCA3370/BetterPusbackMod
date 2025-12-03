@@ -3346,13 +3346,12 @@ tug_clear_is_right(void) {
 static void
 pb_step_closing_cradle(void) {
     double d_t = bp.cur_t - bp.step_start_t;
-    bool_t is_towbar = (bp_ls.tug->info->lift_type == LIFT_TOWBAR);
 
     /*
      * For towbar tugs, skip the cradle closing animation since towbar
      * tugs don't have a cradle. The towbar was simply disconnected.
      */
-    if (is_towbar) {
+    if (tug_is_towbar(bp_ls.tug)) {
         /*
          * Brief delay after disconnection, then proceed to drive away.
          */
@@ -4202,14 +4201,13 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon) {
             if (acf_doors_closed(B_TRUE)) {
                 disable_replanning();
                 double d_t = bp.cur_t - bp.step_start_t;
-                bool_t is_towbar = (bp_ls.tug->info->lift_type == LIFT_TOWBAR);
 
                 /*
                  * For towbar tugs, skip cradle opening animations since
                  * towbar tugs don't have a cradle. They use a rigid towbar
                  * connection to the aircraft nosewheel instead.
                  */
-                if (is_towbar) {
+                if (tug_is_towbar(bp_ls.tug)) {
                     bp_hint_status_str = _("Preparing towbar connection");
                     /*
                      * Just a brief transition delay for towbar tugs.
@@ -4266,7 +4264,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon) {
             pb_step_driving_up_connect();
             break;
         case PB_STEP_GRABBING:
-            if (bp_ls.tug->info->lift_type == LIFT_TOWBAR) {
+            if (tug_is_towbar(bp_ls.tug)) {
                 bp_hint_status_str = _("Connecting towbar");
             } else {
                 bp_hint_status_str = _("Grabbing the aircraft");
@@ -4274,7 +4272,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon) {
             pb_step_grab();
             break;
         case PB_STEP_LIFTING:
-            if (bp_ls.tug->info->lift_type == LIFT_TOWBAR) {
+            if (tug_is_towbar(bp_ls.tug)) {
                 bp_hint_status_str = _("Securing towbar connection");
             } else {
                 bp_hint_status_str = _("Lifting the aircraft");
@@ -4330,7 +4328,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon) {
             pb_step_stopped();
             break;
         case PB_STEP_LOWERING:
-            if (bp_ls.tug->info->lift_type == LIFT_TOWBAR) {
+            if (tug_is_towbar(bp_ls.tug)) {
                 bp_hint_status_str = _("Preparing to disconnect");
             } else {
                 bp_hint_status_str = _("Lowering the nose");
@@ -4338,7 +4336,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon) {
             pb_step_lowering();
             break;
         case PB_STEP_UNGRABBING:
-            if (bp_ls.tug->info->lift_type == LIFT_TOWBAR) {
+            if (tug_is_towbar(bp_ls.tug)) {
                 bp_hint_status_str = _("Disconnecting towbar");
             } else {
                 bp_hint_status_str = _("Ungrabbing the nose");
@@ -4388,7 +4386,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon) {
                  * For towbar tugs, skip the cradle beeper since there's
                  * no cradle. Towbar tugs just disconnected their towbar.
                  */
-                if (bp_ls.tug->info->lift_type != LIFT_TOWBAR) {
+                if (!tug_is_towbar(bp_ls.tug)) {
                     tug_set_cradle_beeper_on(bp_ls.tug, B_TRUE);
                 }
                 bp.step++;
@@ -4397,7 +4395,7 @@ bp_run(float elapsed, float elapsed2, int counter, void *refcon) {
             }
             break;
         case PB_STEP_CLOSING_CRADLE:
-            if (bp_ls.tug->info->lift_type == LIFT_TOWBAR) {
+            if (tug_is_towbar(bp_ls.tug)) {
                 bp_hint_status_str = _("Retracting towbar");
             } else {
                 bp_hint_status_str = _("Closing the cradle");
