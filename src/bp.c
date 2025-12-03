@@ -1226,18 +1226,21 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
     /*
      * The hitch position relative to nosewheel:
      * - Distance = towbar_len
-     * - Direction = from nosewheel AWAY from aircraft (toward where tug is)
+     * - Direction = from nosewheel TOWARD the tug (aircraft forward direction)
      *
      * For GT110 towbar tug:
-     * - Tug faces aircraft, so tug_dir points toward aircraft
-     * - The towbar extends from nosewheel AWAY from aircraft
-     * - towbar_dir should be opposite to aircraft forward direction
-     * - We use aircraft heading + 180° (backward direction) plus half the articulation angle
+     * - Tug is positioned in front of the aircraft (in aircraft forward direction)
+     * - Tug faces the aircraft (tug heading = aircraft heading + 180°)
+     * - The towbar extends from nosewheel toward the hitch on the tug
+     * - towbar_dir should be in the aircraft forward direction (toward tug)
+     * - We use aircraft heading adjusted by half the articulation angle
+     * - When tug rotates right (rel_angle becomes negative), the towbar should
+     *   point slightly right, so we subtract the (negative) towbar_angle
      *
-     * Geometry: [AIRCRAFT NOSE] -> [Nosewheel] --towbar--> [Hitch] --> [Tug Origin]
-     *           (acf forward)                   (away from acf)
+     * Geometry: [AIRCRAFT CG] -> [Nosewheel] --towbar--> [Hitch] --> [Tug Origin]
+     *           (acf forward)                (toward tug)
      */
-    vect2_t towbar_dir = hdg2dir(normalize_hdg(my_hdg + 180 + towbar_angle));
+    vect2_t towbar_dir = hdg2dir(normalize_hdg(my_hdg - towbar_angle));
     vect2_t hitch_pos = vect2_add(nw_pos, vect2_scmul(towbar_dir, towbar_len));
     
     /*
