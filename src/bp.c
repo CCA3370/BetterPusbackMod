@@ -1038,14 +1038,22 @@ turn_nosewheel_towbar(double req_steer) {
      */
     if (ABS(bp_ls.tug->pos.spd) > 0.01) {
         /*
-         * For towbar tugs pushing back:
-         * - Positive d_steer means we want to steer aircraft more to the right
-         * - To do this, we need to swing the tug's rear to the right
-         * - With front-steer tug driving forward, this means steering right
-         * - So tug_steer should be positive when d_steer is positive
-         * - But with forward speed (toward aircraft), steering right swings
-         *   the front right, which swings the towbar connection right,
-         *   which steers the aircraft... left! So we invert.
+         * For towbar tugs, speed interpretation:
+         * - spd > 0: Tug is driving forward (toward aircraft), pushing back
+         * - spd < 0: Tug is driving backward (away from aircraft), towing forward
+         *
+         * Direction multiplier logic (dir_mult):
+         * When pushing back (spd > 0):
+         * - Positive d_steer = we want to steer aircraft more to the right
+         * - With front-wheel steering, steering right while driving forward
+         *   makes the front of the tug swing RIGHT
+         * - This pulls the towbar connection (at the hitch) to the RIGHT
+         * - Which actually steers the aircraft to the LEFT (opposite!)
+         * - Therefore: dir_mult = -1 when spd >= 0
+         *
+         * When towing forward (spd < 0):
+         * - The relationship reverses
+         * - Therefore: dir_mult = +1 when spd < 0
          */
         int dir_mult = (bp_ls.tug->pos.spd >= 0 ? -1 : 1);
         double tug_steer = dir_mult * TOWBAR_STEER_CORR_FACTOR * d_steer;
@@ -2184,6 +2192,14 @@ corr_acf_pos(void) {
          * 2. Move in direction of (aircraft heading - steer + 180°), which is
          *    the direction FROM the nosewheel TOWARD the tug (behind the aircraft)
          * 3. The distance is tug_rear2acf_nw_l (towbar length + hitch-to-rear distance)
+         *
+         * Why subtraction (-steer) for towbar vs addition (+steer) for cradle?
+         * - Cradle tugs are aligned with the aircraft (same heading)
+         *   When nosewheel steers right (+steer), the tug rotates right of the aircraft
+         *   Direction to tug: acf_hdg + steer + 180° (behind and to the right)
+         * - Towbar tugs face the aircraft (heading = acf_hdg + 180°)
+         *   When nosewheel steers right (+steer), the tug rotates LEFT relative to acf
+         *   Direction to tug: acf_hdg - steer + 180° (behind and to the left)
          */
         tug_rear_pos = vect2_add(nw_pos, vect2_scmul(hdg2dir(normalize_hdg(
                 bp.cur_pos.hdg - steer + 180)), tug_rear2acf_nw_l));
