@@ -780,10 +780,40 @@ reorient_aircraft(double d_roll, double d_pitch, double d_hdg) {
 /*
  * Computes the distance from the tug's fixed steering (rear) axle
  * to the aircraft's nosewheel.
+ *
+ * For towbar tugs, this is the effective connection distance through
+ * the towbar link. The geometry is:
+ *   [Tug rear axle] -> [Tug origin] -> [Hitch] --towbar-- [Nosewheel]
+ *   
+ * For cradle tugs, the nosewheel is directly above the tug's lift platform.
  */
 static double
 tug_rear2acf_nw(void) {
     double nlg_tug_z_off;
+    
+    /*
+     * For towbar tugs, the effective distance from rear axle to nosewheel
+     * goes through the towbar connection.
+     * 
+     * From rear axle to hitch: (hitch_z - rear_z) = (hitch_z - fixed_z_off)
+     * From hitch to nosewheel: towbar_length
+     * Total: hitch_z - fixed_z_off + towbar_length
+     * 
+     * Since the tug faces opposite to aircraft (180° difference), this
+     * creates a straight-line effective distance when aligned.
+     */
+    if (tug_is_towbar(bp_ls.tug)) {
+        double hitch_z = bp_ls.tug->info->towbar_hitch_z;
+        double towbar_len = bp_ls.tug->info->towbar_length;
+        /* 
+         * Distance from rear axle (fixed_z_off) to hitch, plus towbar length.
+         * fixed_z_off is the rear axle position (typically negative).
+         * hitch_z is the hitch position (typically positive, at front of tug).
+         */
+        return (hitch_z - bp_ls.tug->veh.fixed_z_off + towbar_len);
+    }
+    
+    /* Original cradle/winch tug calculation */
     switch (bp_ls.tug->info->lift_wall_loc) {
         case LIFT_WALL_FRONT:
             nlg_tug_z_off = bp_ls.tug->info->lift_wall_z - bp.acf.tirrad;
@@ -926,22 +956,15 @@ turn_nosewheel(double req_steer) {
  * 2. Towbar rotates at tug hitch (hinge A) - limited by geometry
  * 3. Towbar angle at nosewheel (hinge B) = nosewheel steering angle
  * 4. Aircraft follows based on nosewheel steering constraints
+ *
+ * Nosewheel steering for towbar tugs:
+ * - The nosewheel steering angle is the angle the towbar makes with the
+ *   aircraft's longitudinal axis (looking backward from the nosewheel)
+ * - When the tug is directly behind the aircraft (aligned), steer = 0
+ * - When the tug rotates to the right, the nosewheel steers to the right
  */
 static void
 turn_nosewheel_towbar(double req_steer) {
-    /*
-     * For towbar tugs facing the aircraft:
-     * - Tug heading = aircraft heading + 180°
-     * - When pushing back, the tug drives forward (toward aircraft)
-     * - The towbar creates a rigid link between tug and aircraft
-     * - Nosewheel steering is determined by the towbar angle at the nosewheel
-     *
-     * Simplified physics model:
-     * The towbar is a rigid bar connecting the tug's hitch to the nosewheel.
-     * The nosewheel steering angle is the angle at which the towbar meets
-     * the aircraft's longitudinal axis. This is determined by the relative
-     * heading between the tug and aircraft.
-     */
     double cur_nw_steer;
     double tug_turn_r, tug_turn_rate;
     double d_steer, d_hdg;
@@ -949,13 +972,24 @@ turn_nosewheel_towbar(double req_steer) {
     double hitch_z = bp_ls.tug->info->towbar_hitch_z;
 
     /*
-     * The current nosewheel steering angle is the relative heading
-     * between the aircraft and the tug (adjusted for the 180° offset).
-     * Since the tug faces the aircraft:
-     * - When aligned, rel_hdg should be 0
-     * - When tug is rotated right relative to aircraft, nosewheel steers right
+     * The current nosewheel steering angle is determined by the relative
+     * heading between the tug and the aircraft.
+     *
+     * For towbar tugs:
+     * - Tug heading = aircraft heading + 180° (when aligned)
+     * - When the tug rotates to the right (tug heading increases),
+     *   the nosewheel also steers to the right
+     *
+     * rel_hdg(a, b) gives the heading change from a to b.
+     * We want: relative angle of tug from aircraft's backward direction
+     *
+     * cur_nw_steer = rel_hdg(acf_hdg + 180, tug_hdg)
+     *              = tug_hdg - (acf_hdg + 180)
+     *
+     * When aligned: tug_hdg = acf_hdg + 180, so cur_nw_steer = 0
+     * When tug rotates right (tug_hdg increases): cur_nw_steer > 0 (right steer)
      */
-    cur_nw_steer = rel_hdg(bp.cur_pos.hdg, normalize_hdg(bp_ls.tug->pos.hdg + 180));
+    cur_nw_steer = rel_hdg(normalize_hdg(bp.cur_pos.hdg + 180), bp_ls.tug->pos.hdg);
 
     /* Limit the steering request to what we can actually do */
     req_steer = MIN(req_steer, bp.veh.max_steer);
@@ -994,18 +1028,26 @@ turn_nosewheel_towbar(double req_steer) {
      * Key insight: The tug's steering affects the aircraft through the
      * towbar with a delay. Aggressive corrections cause overshoots that
      * compound into oscillations or spinning.
+     *
+     * Direction logic:
+     * - When the tug is driving forward (toward aircraft, pushing back):
+     *   - To steer aircraft right, we need to swing tug's front to the left
+     *   - Since tug faces opposite, this means steering the tug right
+     * - When the tug is driving backward (away from aircraft, rare):
+     *   - Direction is reversed
      */
     if (ABS(bp_ls.tug->pos.spd) > 0.01) {
         /*
-         * When pushing back (speed < 0 in tug's reference):
-         * - If we want to steer the aircraft left (d_steer > 0)
-         * - The tug needs to steer LEFT (positive steering)
-         * - But since the tug faces opposite, this is still positive
-         *
-         * When towing forward (speed > 0):
-         * - Steering is reversed
+         * For towbar tugs pushing back:
+         * - Positive d_steer means we want to steer aircraft more to the right
+         * - To do this, we need to swing the tug's rear to the right
+         * - With front-steer tug driving forward, this means steering right
+         * - So tug_steer should be positive when d_steer is positive
+         * - But with forward speed (toward aircraft), steering right swings
+         *   the front right, which swings the towbar connection right,
+         *   which steers the aircraft... left! So we invert.
          */
-        int dir_mult = (bp_ls.tug->pos.spd >= 0 ? 1 : -1);
+        int dir_mult = (bp_ls.tug->pos.spd >= 0 ? -1 : 1);
         double tug_steer = dir_mult * TOWBAR_STEER_CORR_FACTOR * d_steer;
         double speed;
 
@@ -1124,9 +1166,12 @@ tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
     } else if (slave_mode) {
         /*
          * In slave mode, the tug faces opposite to aircraft and
-         * tracks the nosewheel steering (inverted due to opposite heading).
+         * tracks the nosewheel steering. Since cur_nw_steer represents
+         * the relative angle of the tug from the aircraft's backward
+         * direction, the tug heading is:
+         *   tug_hdg = (acf_hdg + 180) + steer
          */
-        tug_hdg = normalize_hdg(my_hdg + 180 - steer);
+        tug_hdg = normalize_hdg(my_hdg + 180 + steer);
     } else if (fabs(radius) < 1e3) {
         double d_hdg = RAD2DEG(tug_spd / radius) * bp.d_t;
         double r_hdg;
@@ -2094,6 +2139,12 @@ nearing_end(void) {
  * as the platform. So instead of simply passing our true position to
  * drive_segs, we pretend that our centerline actually passes through the
  * tug's fixed steering axle.
+ *
+ * For towbar tugs, the geometry is different:
+ * - The tug faces the aircraft (heading = aircraft heading + 180°)
+ * - The towbar connects the tug's front hitch to the aircraft nosewheel
+ * - The effective pivot point is the tug's rear axle, but the connection
+ *   goes through the towbar rather than a direct contact
  */
 static vehicle_pos_t
 corr_acf_pos(void) {
@@ -2107,8 +2158,41 @@ corr_acf_pos(void) {
     vect2_t tug_rear_pos, corr_dir, corr_pos;
 
     VERIFY3S(dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1), ==, 1);
-    tug_rear_pos = vect2_add(nw_pos, vect2_scmul(hdg2dir(normalize_hdg(
-            bp.cur_pos.hdg + steer + 180)), tug_rear2acf_nw_l));
+    
+    /*
+     * For towbar tugs, the tug faces the aircraft, so the geometry is:
+     * - Nosewheel steering angle is relative to aircraft heading
+     * - The tug's rear axle is BEHIND the tug origin, which is BEHIND the hitch
+     * - The towbar extends from the hitch back to the nosewheel
+     *
+     * The effective direction from nosewheel to tug rear axle:
+     * - For cradle tugs: opposite to aircraft heading + nosewheel steer
+     * - For towbar tugs: opposite to aircraft heading - nosewheel steer
+     *   (because the tug faces opposite, steering is inverted in this context)
+     */
+    if (tug_is_towbar(bp_ls.tug)) {
+        /*
+         * For towbar tugs:
+         * The towbar creates a rigid link between the nosewheel and the tug's hitch.
+         * When we steer left (positive steer), the tug swings to the left as seen
+         * from the aircraft. Since the tug faces the opposite direction, this means
+         * the tug's heading rotates counterclockwise (increases) relative to the
+         * aircraft's heading.
+         *
+         * The position of the tug's rear axle is computed as:
+         * 1. Start at nosewheel position
+         * 2. Move in direction of (aircraft heading - steer + 180°), which is
+         *    the direction FROM the nosewheel TOWARD the tug (behind the aircraft)
+         * 3. The distance is tug_rear2acf_nw_l (towbar length + hitch-to-rear distance)
+         */
+        tug_rear_pos = vect2_add(nw_pos, vect2_scmul(hdg2dir(normalize_hdg(
+                bp.cur_pos.hdg - steer + 180)), tug_rear2acf_nw_l));
+    } else {
+        /* Original calculation for cradle/winch tugs */
+        tug_rear_pos = vect2_add(nw_pos, vect2_scmul(hdg2dir(normalize_hdg(
+                bp.cur_pos.hdg + steer + 180)), tug_rear2acf_nw_l));
+    }
+    
     corr_dir = vect2_sub(tug_rear_pos, main_pos);
     corr_pos = vect2_add(main_pos, vect2_set_abs(corr_dir, bp.acf.main_z));
     corr_hdg = dir2hdg(corr_dir);
