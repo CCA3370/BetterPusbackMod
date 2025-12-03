@@ -1017,7 +1017,7 @@ turn_nosewheel_towbar(double req_steer) {
     }
 
     /* Set the nosewheel steering command */
-    float nw_steer = (float)output.nw_steer;
+    double nw_steer = output.nw_steer;
     dr_setvf(&drs.tire_steer_cmd, &nw_steer, bp.acf.nw_i, 1);
 
     /* Apply aircraft heading correction */
@@ -1057,7 +1057,7 @@ turn_nosewheel_towbar(double req_steer) {
 static void
 tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
     double tug_hdg, tug_spd, radius;
-    float steer;
+    double steer;
     vect2_t acf_dir, tug_pos, nw_pos, hitch_pos;
     double towbar_len = bp_ls.tug->info->towbar_length;
     double hitch_z = bp_ls.tug->info->towbar_hitch_z;
