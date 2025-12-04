@@ -203,10 +203,11 @@ static int previous_beacon;
 bool_t tug_pending_mode;
 bool_t towbar_debug = B_FALSE;
 
-/* Towbar control state - used for towbar-type tugs */
-static towbar_state_t towbar_state = {0};
-static towbar_params_t towbar_params = {0};
-static bool_t towbar_params_initialized = B_FALSE;
+/*
+ * Towbar control state is now managed in towbar_control.c
+ * The high-level API functions (towbar_turn_nosewheel, towbar_tug_pos_update)
+ * handle all towbar-specific logic internally.
+ */
 
 push_manual_t push_manual = {0};
 
@@ -832,23 +833,12 @@ tug_rear2acf_nw_cradle(void) {
  * 
  *   [Tug Rear Axle] ---(hitch_z - fixed_z_off)--- [Hitch] ---(towbar_length)--- [Nosewheel]
  *
- * The geometry is:
- *   From rear axle to origin: fixed_z_off (typically negative, meaning rear axle is behind origin)
- *   From origin to hitch: hitch_z (typically positive, meaning hitch is in front of origin)
- *   From hitch to nosewheel: towbar_length
- *   
- * Total = hitch_z - fixed_z_off + towbar_length
+ * Now delegates to towbar_control module.
  */
 static double
 tug_rear2acf_nw_towbar(void) {
-    double hitch_z, towbar_len;
-    
     ASSERT(tug_is_towbar(bp_ls.tug));
-    
-    hitch_z = bp_ls.tug->info->towbar_hitch_z;
-    towbar_len = bp_ls.tug->info->towbar_length;
-    
-    return (hitch_z - bp_ls.tug->veh.fixed_z_off + towbar_len);
+    return towbar_rear_to_nw_dist(bp_ls.tug);
 }
 
 /*
@@ -984,21 +974,14 @@ turn_nosewheel(double req_steer) {
 /*
  * Initialize towbar control for the current tug.
  * Called when a towbar tug is connected.
+ * Now delegates to towbar_control module.
  */
 static void
 towbar_control_init_for_tug(void) {
     if (bp_ls.tug == NULL || !tug_is_towbar(bp_ls.tug))
         return;
 
-    towbar_state_init(&towbar_state,
-                      bp_ls.tug->info->towbar_length,
-                      bp_ls.tug->info->towbar_hitch_z);
-
-    if (!towbar_params_initialized) {
-        towbar_params = towbar_get_default_params();
-        towbar_params.max_nw_angle = bp.veh.max_steer;
-        towbar_params_initialized = B_TRUE;
-    }
+    towbar_control_init(bp_ls.tug, bp.veh.max_steer);
 }
 
 /*
@@ -1010,61 +993,37 @@ towbar_control_init_for_tug(void) {
  * - The tug faces the OPPOSITE direction from the aircraft (head-to-head)
  * - When pushing back, the tug drives FORWARD (in its own reference frame)
  * - The towbar articulates at both the hitch and the nosewheel
+ *
+ * All physics calculations are now delegated to towbar_control module.
  */
 static void
 turn_nosewheel_towbar(double req_steer) {
-    towbar_input_t input;
-    towbar_output_t output;
+    double nw_steer, hdg_delta;
 
     /* Ensure towbar state is initialized */
-    if (!towbar_state.initialized) {
+    if (!towbar_control_is_initialized()) {
         towbar_control_init_for_tug();
     }
 
-    /* Prepare input structure for physics calculation */
-    input.acf_pos = bp.cur_pos.pos;
-    input.acf_hdg = bp.cur_pos.hdg;
-    input.nw_z = bp.acf.nw_z;
-    input.max_nw_steer = bp.veh.max_steer;
-
-    input.tug_pos = bp_ls.tug->pos.pos;
-    input.tug_hdg = bp_ls.tug->pos.hdg;
-    input.tug_speed = bp_ls.tug->pos.spd;
-    input.tug_cur_steer = bp_ls.tug->cur_steer;
-    input.tug_max_steer = bp_ls.tug->veh.max_steer;
-    input.tug_wheelbase = bp_ls.tug->veh.wheelbase;
-
-    input.req_steer = req_steer;
-    input.d_t = bp.d_t;
-
-    /* Calculate physics using the towbar control module */
-    towbar_calculate_physics(&towbar_state, &towbar_params, &input, &output);
-
-    /* Apply tug steering if moving */
-    if (ABS(bp_ls.tug->pos.spd) > 0.01) {
-        double speed = ang_vel_speed_limit(&bp_ls.tug->veh, output.tug_steer_cmd,
-                                           bp_ls.tug->pos.spd);
-        double tug_steer = output.tug_steer_cmd;
-        if (ABS(speed) < ABS(bp_ls.tug->pos.spd))
-            tug_steer *= ABS(speed / bp_ls.tug->pos.spd);
-        tug_set_steering(bp_ls.tug, tug_steer, bp.d_t);
-    }
+    /* Delegate to towbar_control module */
+    towbar_turn_nosewheel(bp_ls.tug,
+                          bp.cur_pos.pos,
+                          bp.cur_pos.hdg,
+                          bp.cur_pos.spd,
+                          bp.acf.nw_z,
+                          bp.veh.max_steer,
+                          req_steer,
+                          bp.d_t,
+                          bp.cur_t,
+                          towbar_debug,
+                          &nw_steer,
+                          &hdg_delta);
 
     /* Set the nosewheel steering command */
-    double nw_steer = output.nw_steer;
     dr_setvf(&drs.tire_steer_cmd, &nw_steer, bp.acf.nw_i, 1);
 
     /* Apply aircraft heading correction */
-    reorient_aircraft(0, 0, output.acf_hdg_delta);
-
-    /* Debug logging */
-    if (towbar_debug) {
-        static double last_steer_debug_t = 0;
-        if (bp.cur_t - last_steer_debug_t >= 1.0) {
-            last_steer_debug_t = bp.cur_t;
-            towbar_debug_log(&towbar_state, &input, &output);
-        }
-    }
+    reorient_aircraft(0, 0, hdg_delta);
 }
 
 /*
@@ -1087,133 +1046,27 @@ turn_nosewheel_towbar(double req_steer) {
  *     [AIRCRAFT]→ 🛞 <--towbar--> ←[TUG]
  *
  * When tug drives forward (toward aircraft), aircraft is pushed backward.
+ *
+ * All calculations are now delegated to towbar_control module.
  */
 static void
 tug_pos_update_towbar(vect2_t my_pos, double my_hdg, bool_t pos_only) {
-    double tug_hdg, tug_spd, radius;
-    double steer;
-    vect2_t acf_dir, tug_pos, nw_pos, hitch_pos;
-    double towbar_len = bp_ls.tug->info->towbar_length;
-    double hitch_z = bp_ls.tug->info->towbar_hitch_z;
-
     /* Ensure towbar state is initialized */
-    if (!towbar_state.initialized) {
+    if (!towbar_control_is_initialized()) {
         towbar_control_init_for_tug();
     }
 
-    dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
-
-    /*
-     * For towbar tugs facing the aircraft:
-     * - Tug heading = aircraft heading + 180°
-     * - Tug's forward direction points toward aircraft
-     * - When pushing back, the aircraft moves backward while tug moves forward
-     * - tug_speed() returns the relative speed between tug and aircraft
-     */
-    tug_spd = tug_speed();
-
-    /*
-     * Calculate the tug's turn radius from its current steering.
-     */
-    if (ABS(bp_ls.tug->cur_steer) < 0.01) {
-        radius = 1e10;
-    } else if (ABS(bp_ls.tug->cur_steer) > 89.0) {
-        radius = bp_ls.tug->veh.wheelbase * 0.01;
-    } else {
-        radius = tan(DEG2RAD(90 - ABS(bp_ls.tug->cur_steer))) *
-                 bp_ls.tug->veh.wheelbase;
-        if (bp_ls.tug->cur_steer < 0)
-            radius = -radius;
-    }
-
-    /*
-     * Calculate the nosewheel position in world coordinates.
-     */
-    acf_dir = hdg2dir(my_hdg);
-    nw_pos = vect2_add(my_pos, vect2_scmul(acf_dir, -bp.acf.nw_z));
-
-    if (pos_only) {
-        tug_hdg = bp_ls.tug->pos.hdg;
-    } else if (slave_mode) {
-        /*
-         * In slave mode, the tug faces opposite to aircraft and
-         * tracks the nosewheel steering. Since cur_nw_steer represents
-         * the relative angle of the tug from the aircraft's backward
-         * direction, the tug heading is:
-         *   tug_hdg = (acf_hdg + 180) + steer
-         */
-        tug_hdg = normalize_hdg(my_hdg + 180 + steer);
-    } else if (fabs(radius) < 1e3) {
-        double d_hdg = RAD2DEG(tug_spd / radius) * bp.d_t;
-        double r_hdg;
-
-        tug_hdg = normalize_hdg(bp_ls.tug->pos.hdg + d_hdg);
-        /*
-         * Limit the tug heading relative to the opposite of aircraft heading.
-         * The towbar can only articulate so far.
-         */
-        r_hdg = rel_hdg(normalize_hdg(my_hdg + 180), tug_hdg);
-        if (r_hdg > bp.veh.max_steer)
-            tug_hdg = normalize_hdg(my_hdg + 180 + bp.veh.max_steer);
-        else if (r_hdg < -bp.veh.max_steer)
-            tug_hdg = normalize_hdg(my_hdg + 180 - bp.veh.max_steer);
-    } else {
-        tug_hdg = bp_ls.tug->pos.hdg;
-    }
-
-    /*
-     * Use the towbar_control module to calculate tug position.
-     * This ensures the towbar remains properly connected at both ends.
-     */
-    towbar_calculate_tug_position(&towbar_state, nw_pos, my_hdg, tug_hdg,
-                                   &tug_pos, &hitch_pos);
-    
-    /* Update towbar articulation angles */
-    double hitch_angle, connection_angle;
-    towbar_calculate_angles(&towbar_state, my_hdg, tug_hdg,
-                           &hitch_angle, &connection_angle);
-
-    tug_set_pos(bp_ls.tug, tug_pos, tug_hdg, tug_spd);
-
-    /*
-     * Set towbar animation values.
-     */
-    tug_set_towbar_heading(hitch_angle);
-    tug_set_towbar_pitch(0);
-
-    /*
-     * Validate connection integrity (debug check).
-     */
-    if (towbar_debug && !pos_only) {
-        if (!towbar_validate_connection(&towbar_state, hitch_pos, nw_pos, 0.5)) {
-            logMsg(BP_WARN_LOG "[TOWBAR] Connection integrity check failed!");
-        }
-    }
-
-    /*
-     * Debug logging for towbar tug physics
-     */
-    if (towbar_debug) {
-        static double last_debug_t = 0;
-        if (bp.cur_t - last_debug_t >= 1.0) {  /* Log once per second */
-            last_debug_t = bp.cur_t;
-            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] === Towbar Tug Position Update ===");
-            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Aircraft: pos=(%.2f, %.2f) hdg=%.1f°",
-                   my_pos.x, my_pos.y, my_hdg);
-            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Nosewheel: pos=(%.2f, %.2f) nw_z=%.2f",
-                   nw_pos.x, nw_pos.y, bp.acf.nw_z);
-            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Tug: pos=(%.2f, %.2f) hdg=%.1f° spd=%.2f m/s",
-                   tug_pos.x, tug_pos.y, tug_hdg, tug_spd);
-            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Tug steering: cur_steer=%.1f° radius=%.2f",
-                   bp_ls.tug->cur_steer, radius);
-            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Towbar: len=%.2f hitch_z=%.2f",
-                   towbar_len, hitch_z);
-            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Articulation: hitch_angle=%.1f° connection_angle=%.1f°",
-                   hitch_angle, connection_angle);
-            logMsg(BP_INFO_LOG "[TOWBAR DEBUG] Hitch: pos=(%.2f, %.2f)",
-                   hitch_pos.x, hitch_pos.y);
-        }
-    }
+    /* Delegate to towbar_control module */
+    towbar_tug_pos_update(bp_ls.tug,
+                          my_pos,
+                          my_hdg,
+                          bp.acf.nw_z,
+                          bp.veh.max_steer,
+                          slave_mode,
+                          bp.d_t,
+                          bp.cur_t,
+                          towbar_debug,
+                          pos_only);
 }
 
 /*
@@ -2354,8 +2207,8 @@ bp_complete(void) {
     plan_complete = B_FALSE;
 
     /* Reset towbar state if it was initialized */
-    if (towbar_state.initialized) {
-        towbar_state_reset(&towbar_state);
+    if (towbar_control_is_initialized()) {
+        towbar_control_reset();
     }
 
     if (bp_ls.tug != NULL) {
