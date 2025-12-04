@@ -593,7 +593,7 @@ towbar_debug_log(const towbar_state_t *state,
 static towbar_control_ctx_t towbar_ctx = {0};
 
 void
-towbar_control_init(tug_t *tug, double max_nw_steer)
+towbar_control_init(struct tug_s *tug, double max_nw_steer)
 {
     const tug_info_t *ti;
     
@@ -636,7 +636,7 @@ towbar_control_get_ctx(void)
 }
 
 double
-towbar_rear_to_nw_dist(const tug_t *tug)
+towbar_rear_to_nw_dist(const struct tug_s *tug)
 {
     double hitch_z, towbar_len;
     
@@ -677,7 +677,7 @@ towbar_tug_speed(double acf_hdg,
 }
 
 void
-towbar_turn_nosewheel(tug_t *tug,
+towbar_turn_nosewheel(struct tug_s *tug,
                       vect2_t acf_pos,
                       double acf_hdg,
                       double acf_spd,
@@ -748,7 +748,7 @@ towbar_turn_nosewheel(tug_t *tug,
 }
 
 void
-towbar_tug_pos_update(tug_t *tug,
+towbar_tug_pos_update(struct tug_s *tug,
                       vect2_t acf_pos,
                       double acf_hdg,
                       double nw_z,
