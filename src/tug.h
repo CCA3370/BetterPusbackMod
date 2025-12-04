@@ -146,7 +146,7 @@ typedef struct {
     avl_node_t node;
 } tug_info_t;
 
-typedef struct {
+typedef struct tug_s {
     vehicle_pos_t pos;
     vehicle_t veh, veh_slow, veh_super_slow;
     bool_t steer_override;

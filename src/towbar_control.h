@@ -289,6 +289,144 @@ void towbar_debug_log(const towbar_state_t *state,
                       const towbar_input_t *input,
                       const towbar_output_t *output);
 
+/*
+ * ============================================================================
+ * HIGH-LEVEL TOWBAR CONTROL FUNCTIONS
+ * ============================================================================
+ *
+ * These functions provide complete control flow for towbar-type tugs,
+ * ensuring all towbar-specific logic is contained within this module.
+ * bp.c should call these functions and not implement any towbar-specific
+ * logic directly.
+ */
+
+/* Forward declaration - include tug.h for full definition */
+struct tug_s;
+
+/*
+ * Towbar control context
+ * Contains all state needed for towbar tug control.
+ * This is managed internally by the towbar_control module.
+ */
+typedef struct {
+    towbar_state_t state;
+    towbar_params_t params;
+    bool_t params_initialized;
+} towbar_control_ctx_t;
+
+/*
+ * Initialize towbar control for a tug.
+ * Must be called when a towbar tug is connected to an aircraft.
+ * This initializes the internal towbar state and parameters.
+ *
+ * @param tug           Pointer to the tug structure
+ * @param max_nw_steer  Maximum nosewheel steering angle of the aircraft
+ */
+void towbar_control_init(struct tug_s *tug, double max_nw_steer);
+
+/*
+ * Reset towbar control state.
+ * Called when disconnecting the towbar or resetting the simulation.
+ */
+void towbar_control_reset(void);
+
+/*
+ * Check if towbar control is initialized.
+ * @return true if towbar control has been initialized
+ */
+bool_t towbar_control_is_initialized(void);
+
+/*
+ * Get the towbar control context (for internal use).
+ * @return Pointer to the internal towbar control context
+ */
+towbar_control_ctx_t *towbar_control_get_ctx(void);
+
+/*
+ * Handle nosewheel steering for towbar tug.
+ * This is the complete replacement for turn_nosewheel() when using a towbar tug.
+ * It handles all towbar-specific steering physics and kinematics.
+ *
+ * @param tug           Pointer to the tug structure
+ * @param acf_pos       Current aircraft CG position (world coords)
+ * @param acf_hdg       Current aircraft heading (degrees)
+ * @param acf_spd       Current aircraft speed (m/s)
+ * @param nw_z          Nosewheel Z offset from CG
+ * @param max_nw_steer  Maximum nosewheel steering angle
+ * @param req_steer     Requested steering angle (degrees)
+ * @param d_t           Delta time since last update (seconds)
+ * @param cur_t         Current simulation time (seconds)
+ * @param debug         Enable debug logging
+ * @param out_nw_steer  Output: nosewheel steering command to apply
+ * @param out_hdg_delta Output: aircraft heading correction to apply
+ */
+void towbar_turn_nosewheel(struct tug_s *tug,
+                           vect2_t acf_pos,
+                           double acf_hdg,
+                           double acf_spd,
+                           double nw_z,
+                           double max_nw_steer,
+                           double req_steer,
+                           double d_t,
+                           double cur_t,
+                           bool_t debug,
+                           double *out_nw_steer,
+                           double *out_hdg_delta);
+
+/*
+ * Update tug position for towbar tug.
+ * This is the complete replacement for tug_pos_update() when using a towbar tug.
+ * It handles all towbar-specific position calculations and articulation.
+ *
+ * @param tug           Pointer to the tug structure
+ * @param acf_pos       Current aircraft CG position (world coords)
+ * @param acf_hdg       Current aircraft heading (degrees)
+ * @param nw_z          Nosewheel Z offset from CG
+ * @param max_nw_steer  Maximum nosewheel steering angle
+ * @param slave_mode    Whether in slave mode (networked)
+ * @param d_t           Delta time since last update (seconds)
+ * @param cur_t         Current simulation time (seconds)
+ * @param debug         Enable debug logging
+ * @param pos_only      Only update position, don't change heading
+ */
+void towbar_tug_pos_update(struct tug_s *tug,
+                           vect2_t acf_pos,
+                           double acf_hdg,
+                           double nw_z,
+                           double max_nw_steer,
+                           bool_t slave_mode,
+                           double d_t,
+                           double cur_t,
+                           bool_t debug,
+                           bool_t pos_only);
+
+/*
+ * Calculate the distance from tug rear axle to nosewheel for towbar tugs.
+ * This is equivalent to tug_rear2acf_nw_cradle() but for towbar tugs.
+ *
+ * @param tug   Pointer to the tug structure
+ * @return Distance from rear axle to nosewheel in meters
+ */
+double towbar_rear_to_nw_dist(const struct tug_s *tug);
+
+/*
+ * Calculate tug speed relative to aircraft.
+ * For towbar tugs, this returns the speed at which the tug is moving
+ * relative to the aircraft, taking into account the towbar connection.
+ *
+ * @param acf_hdg       Aircraft heading (degrees)
+ * @param acf_spd       Aircraft speed (m/s)
+ * @param wheelbase     Aircraft wheelbase (meters)
+ * @param nw_steer      Current nosewheel steering angle (degrees)
+ * @param hdg_rate      Aircraft heading rate of change (degrees/second)
+ * @return Tug speed (m/s)
+ */
+double towbar_tug_speed(double acf_hdg,
+                        double acf_spd,
+                        double wheelbase,
+                        double nw_steer,
+                        double hdg_rate);
+
 #ifdef __cplusplus
 }
 #endif
