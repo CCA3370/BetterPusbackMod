@@ -781,42 +781,33 @@ reorient_aircraft(double d_roll, double d_pitch, double d_hdg) {
 }
 
 /*
- * Computes the distance from the tug's fixed steering (rear) axle
- * to the aircraft's nosewheel.
+ * ============================================================================
+ * TUG REAR TO NOSEWHEEL DISTANCE CALCULATION
+ * ============================================================================
  *
- * For towbar tugs, this is the effective connection distance through
- * the towbar link. The geometry is:
- *   [Tug rear axle] -> [Tug origin] -> [Hitch] --towbar-- [Nosewheel]
- *   
- * For cradle tugs, the nosewheel is directly above the tug's lift platform.
+ * These functions compute the distance from the tug's fixed steering (rear)
+ * axle to the aircraft's nosewheel. There are SEPARATE functions for cradle
+ * and towbar tugs to ensure they don't share code inappropriately.
+ *
+ * CRADLE TUGS (LIFT_GRAB / LIFT_WINCH):
+ *   The nosewheel is directly above or on the tug's lift platform.
+ *   Distance = lift_wall_z (adjusted for tire radius) - rear_axle_position
+ *
+ * TOWBAR TUGS (LIFT_TOWBAR):
+ *   The towbar creates a rigid link between the tug's hitch and the nosewheel.
+ *   Distance = (hitch_z - rear_axle_position) + towbar_length
+ */
+
+/*
+ * Cradle/winch tug rear-to-nosewheel distance.
+ * DO NOT USE FOR TOWBAR TUGS - use tug_rear2acf_nw_towbar() instead.
  */
 static double
-tug_rear2acf_nw(void) {
+tug_rear2acf_nw_cradle(void) {
     double nlg_tug_z_off;
     
-    /*
-     * For towbar tugs, the effective distance from rear axle to nosewheel
-     * goes through the towbar connection.
-     * 
-     * From rear axle to hitch: (hitch_z - rear_z) = (hitch_z - fixed_z_off)
-     * From hitch to nosewheel: towbar_length
-     * Total: hitch_z - fixed_z_off + towbar_length
-     * 
-     * Since the tug faces opposite to aircraft (180° difference), this
-     * creates a straight-line effective distance when aligned.
-     */
-    if (tug_is_towbar(bp_ls.tug)) {
-        double hitch_z = bp_ls.tug->info->towbar_hitch_z;
-        double towbar_len = bp_ls.tug->info->towbar_length;
-        /* 
-         * Distance from rear axle (fixed_z_off) to hitch, plus towbar length.
-         * fixed_z_off is the rear axle position (typically negative).
-         * hitch_z is the hitch position (typically positive, at front of tug).
-         */
-        return (hitch_z - bp_ls.tug->veh.fixed_z_off + towbar_len);
-    }
+    ASSERT(!tug_is_towbar(bp_ls.tug));
     
-    /* Original cradle/winch tug calculation */
     switch (bp_ls.tug->info->lift_wall_loc) {
         case LIFT_WALL_FRONT:
             nlg_tug_z_off = bp_ls.tug->info->lift_wall_z - bp.acf.tirrad;
@@ -832,12 +823,55 @@ tug_rear2acf_nw(void) {
     return (nlg_tug_z_off - bp_ls.tug->veh.fixed_z_off);
 }
 
+/*
+ * Towbar tug rear-to-nosewheel distance.
+ * DO NOT USE FOR CRADLE TUGS - use tug_rear2acf_nw_cradle() instead.
+ *
+ * For towbar tugs, the effective distance from rear axle to nosewheel
+ * goes through the towbar connection:
+ * 
+ *   [Tug Rear Axle] ---(hitch_z - fixed_z_off)--- [Hitch] ---(towbar_length)--- [Nosewheel]
+ *
+ * The geometry is:
+ *   From rear axle to origin: fixed_z_off (typically negative, meaning rear axle is behind origin)
+ *   From origin to hitch: hitch_z (typically positive, meaning hitch is in front of origin)
+ *   From hitch to nosewheel: towbar_length
+ *   
+ * Total = hitch_z - fixed_z_off + towbar_length
+ */
+static double
+tug_rear2acf_nw_towbar(void) {
+    double hitch_z, towbar_len;
+    
+    ASSERT(tug_is_towbar(bp_ls.tug));
+    
+    hitch_z = bp_ls.tug->info->towbar_hitch_z;
+    towbar_len = bp_ls.tug->info->towbar_length;
+    
+    return (hitch_z - bp_ls.tug->veh.fixed_z_off + towbar_len);
+}
+
+/*
+ * ============================================================================
+ * CRADLE TUG NOSEWHEEL STEERING
+ * ============================================================================
+ *
+ * This function handles nosewheel steering for CRADLE (grab/winch) tugs ONLY.
+ * DO NOT USE FOR TOWBAR TUGS - use turn_nosewheel_towbar() instead.
+ *
+ * Cradle tugs (LIFT_GRAB / LIFT_WINCH) lift the aircraft nosewheel and hold
+ * it rigidly in a cradle. The tug and aircraft move as a single unit with
+ * only one pivot point: the aircraft nosewheel steering.
+ */
 static void
 turn_nosewheel(double req_steer) {
     int dir_mult = (bp_ls.tug->pos.spd >= 0 ? 1 : -1);
     double cur_nw_steer, tug_turn_r, tug_turn_rate, rel_tug_turn_rate;
     double d_steer, nlg_tug_rear_off, d_hdg, turn_inc;
     vect2_t off_v;
+    
+    /* Safety assertion: this function should only be called for cradle tugs */
+    ASSERT(!tug_is_towbar(bp_ls.tug));
 
     cur_nw_steer = rel_hdg(bp.cur_pos.hdg, bp_ls.tug->pos.hdg);
 
@@ -900,7 +934,7 @@ turn_nosewheel(double req_steer) {
      * that into a heading change and write that to the orientation
      * quaternion, overriding the aircraft's heading.
      */
-    nlg_tug_rear_off = tug_rear2acf_nw();
+    nlg_tug_rear_off = tug_rear2acf_nw_cradle();
     turn_inc = rel_tug_turn_rate * bp.d_t;
 
     /*
@@ -2069,24 +2103,19 @@ corr_acf_pos(void) {
                                  vect2_scmul(dir, -bp.acf.main_z));
     vect2_t nw_pos = vect2_add(bp.cur_pos.pos,
                                vect2_scmul(dir, -bp.acf.nw_z));
-    double tug_rear2acf_nw_l = tug_rear2acf_nw();
+    double tug_rear2acf_nw_l;
     double steer, corr_hdg;
     vect2_t tug_rear_pos, corr_dir, corr_pos;
 
     VERIFY3S(dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1), ==, 1);
     
     /*
-     * For towbar tugs, the tug faces the aircraft, so the geometry is:
-     * - Nosewheel steering angle is relative to aircraft heading
-     * - The tug's rear axle is BEHIND the tug origin, which is BEHIND the hitch
-     * - The towbar extends from the hitch back to the nosewheel
-     *
-     * The effective direction from nosewheel to tug rear axle:
-     * - For cradle tugs: opposite to aircraft heading + nosewheel steer
-     * - For towbar tugs: opposite to aircraft heading - nosewheel steer
-     *   (because the tug faces opposite, steering is inverted in this context)
+     * Use the appropriate distance calculation based on tug type.
+     * This ensures complete separation between towbar and cradle calculations.
      */
     if (tug_is_towbar(bp_ls.tug)) {
+        tug_rear2acf_nw_l = tug_rear2acf_nw_towbar();
+        
         /*
          * For towbar tugs:
          * The towbar creates a rigid link between the nosewheel and the tug's hitch.
@@ -2112,6 +2141,8 @@ corr_acf_pos(void) {
         tug_rear_pos = vect2_add(nw_pos, vect2_scmul(hdg2dir(normalize_hdg(
                 bp.cur_pos.hdg - steer + 180)), tug_rear2acf_nw_l));
     } else {
+        tug_rear2acf_nw_l = tug_rear2acf_nw_cradle();
+        
         /* Original calculation for cradle/winch tugs */
         tug_rear_pos = vect2_add(nw_pos, vect2_scmul(hdg2dir(normalize_hdg(
                 bp.cur_pos.hdg + steer + 180)), tug_rear2acf_nw_l));
@@ -2791,20 +2822,45 @@ pb_step_connect_towbar(void) {
     }
 }
 
+/*
+ * Dispatch grab step to the appropriate connection function based on tug type.
+ * Each tug type has its own connection procedure.
+ */
 static void
 pb_step_grab(void) {
     if (!slave_mode) {
         double steer = 0;
         dr_setvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
     }
-    tug_set_cradle_beeper_on(bp_ls.tug, B_TRUE);
-    tug_set_lift_in_transit(B_TRUE);
-    if (bp_ls.tug->info->lift_type == LIFT_GRAB)
-        pb_step_connect_grab();
-    else if (bp_ls.tug->info->lift_type == LIFT_TOWBAR)
+    
+    /*
+     * Dispatch to the appropriate connection function based on lift type.
+     * Each type has different animations and timing requirements.
+     */
+    if (bp_ls.tug->info->lift_type == LIFT_TOWBAR) {
+        /*
+         * TOWBAR TUG: Simple connection, no cradle or lift mechanism.
+         * Towbar tugs have a beeper for safety during approach but
+         * the connection itself is silent.
+         */
+        tug_set_lift_in_transit(B_TRUE);  /* Mark as in-transit for state tracking */
         pb_step_connect_towbar();
-    else
+    } else if (bp_ls.tug->info->lift_type == LIFT_GRAB) {
+        /*
+         * GRAB TUG: Cradle closes around the nosewheel, then lifts.
+         */
+        tug_set_cradle_beeper_on(bp_ls.tug, B_TRUE);
+        tug_set_lift_in_transit(B_TRUE);
+        pb_step_connect_grab();
+    } else {
+        /*
+         * WINCH TUG: Winches the aircraft onto a platform, then lifts.
+         */
+        ASSERT3U(bp_ls.tug->info->lift_type, ==, LIFT_WINCH);
+        tug_set_cradle_beeper_on(bp_ls.tug, B_TRUE);
+        tug_set_lift_in_transit(B_TRUE);
         pb_step_connect_winch();
+    }
 }
 
 static void
@@ -3884,13 +3940,22 @@ pb_step_clear_signal(void) {
 }
 
 /*
+ * ============================================================================
+ * TUG POSITION UPDATE
+ * ============================================================================
+ *
  * Updates the tug's position with respect to where we are and its orientation
  * based on the tug's current steering input. When `pos_only' is true, only
- * the tug's position is update to match our nose gear position, but we leave
+ * the tug's position is updated to match our nose gear position, but we leave
  * its heading untouched. This is because this can be called from the draw
  * function as well, which might update more frequently than the flight loop,
  * so we want to keep the tug firmly attached to our nosewheel, but not
  * actually change any params that might affect our steering.
+ *
+ * IMPORTANT: This function delegates to completely separate implementations
+ * for towbar and cradle tugs to ensure no code is shared between them:
+ *   - Towbar tugs: tug_pos_update_towbar()
+ *   - Cradle tugs: inline code below (after early return for towbar)
  */
 static void
 tug_pos_update(vect2_t my_pos, double my_hdg, bool_t pos_only) {
@@ -3900,13 +3965,19 @@ tug_pos_update(vect2_t my_pos, double my_hdg, bool_t pos_only) {
     /*
      * For towbar tugs, use the specialized towbar position update function.
      * This handles the dual-articulation geometry properly.
+     * DO NOT add any towbar-specific code below this point.
      */
     if (tug_is_towbar(bp_ls.tug)) {
         tug_pos_update_towbar(my_pos, my_hdg, pos_only);
         return;
     }
 
-    /* Original cradle/winch tug position update code follows */
+    /*
+     * ========================================================================
+     * CRADLE/WINCH TUG POSITION UPDATE (LIFT_GRAB / LIFT_WINCH)
+     * ========================================================================
+     * DO NOT USE THIS CODE FOR TOWBAR TUGS.
+     */
     dr_getvf(&drs.tire_steer_cmd, &steer, bp.acf.nw_i, 1);
 
     tug_spd = tug_speed();
